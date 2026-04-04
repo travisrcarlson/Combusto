@@ -1,0 +1,31 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest
+.pytest_cache/
+
+# VS Code
+.vscode/
+
+# Project specific deployment artifacts
+url_full.txt
+url_only.txt
+extracted_url.txt
+tunnel_url.txt
+tunnel_url_clean.txt
+tunnel.log
+tunnel_clean.log
+cloudflared.exe
+get_tunnel_url.py
+launch_cloudflare.ps1

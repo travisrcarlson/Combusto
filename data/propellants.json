@@ -1,0 +1,57 @@
+{
+  "_comment": "Preset propellant formulations. mass_fraction sums to 1.0. hf_298 in kJ/mol.",
+  "formulations": [
+    {
+      "name": "Single-base (NC)",
+      "description": "Single-base propellant: nitrocellulose (13.15% N, ~NC12.6)",
+      "components": [
+        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.93, "hf_298": -700.0},
+        {"name": "Diphenylamine (stabilizer)", "formula": "C12H11N", "mass_fraction": 0.01, "hf_298": 130.0},
+        {"name": "Dibutyl phthalate", "formula": "C16H22O4", "mass_fraction": 0.06, "hf_298": -843.0}
+      ]
+    },
+    {
+      "name": "Double-base (NC/NG)",
+      "description": "Double-base propellant: nitrocellulose + nitroglycerin",
+      "components": [
+        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.55, "hf_298": -700.0},
+        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.40, "hf_298": -370.0},
+        {"name": "Centralite I", "formula": "C15H16N2O", "mass_fraction": 0.03, "hf_298": -120.0},
+        {"name": "Carbon black", "formula": "C", "mass_fraction": 0.02, "hf_298": 0.0}
+      ]
+    },
+    {
+      "name": "Triple-base (NC/NG/NQ)",
+      "description": "Triple-base propellant: NC + NG + nitroguanidine",
+      "components": [
+        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.28, "hf_298": -700.0},
+        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.22, "hf_298": -370.0},
+        {"name": "Nitroguanidine", "formula": "CH4N4O2", "mass_fraction": 0.47, "hf_298": -92.4},
+        {"name": "Ethyl centralite", "formula": "C15H16N2O", "mass_fraction": 0.03, "hf_298": -120.0}
+      ]
+    },
+    {
+      "name": "Composite (NC/NG/Al)",
+      "description": "Aluminized double-base propellant",
+      "components": [
+        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.45, "hf_298": -700.0},
+        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.30, "hf_298": -370.0},
+        {"name": "Aluminum", "formula": "Al", "mass_fraction": 0.10, "hf_298": 0.0},
+        {"name": "Ammonium perchlorate", "formula": "ClH4NO4", "mass_fraction": 0.12, "hf_298": -295.8},
+        {"name": "Centralite I", "formula": "C15H16N2O", "mass_fraction": 0.03, "hf_298": -120.0}
+      ]
+    },
+    {
+      "name": "Ball powder (WC 844)",
+      "description": "Ball propellant (spherical), typical rifle powder",
+      "components": [
+        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.82, "hf_298": -700.0},
+        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.10, "hf_298": -370.0},
+        {"name": "Diethyl phthalate", "formula": "C12H14O4", "mass_fraction": 0.04, "hf_298": -689.0},
+        {"name": "Diphenylamine", "formula": "C12H11N", "mass_fraction": 0.01, "hf_298": 130.0},
+        {"name": "Potassium sulfate", "formula": "K2SO4", "mass_fraction": 0.02, "hf_298": -1438.0},
+        {"name": "Calcium carbonate", "formula": "CaCO3", "mass_fraction": 0.01, "hf_298": -1207.0}
+      ]
+    }
+  ]
+}
