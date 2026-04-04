@@ -273,6 +273,42 @@ components.html("""
 st.title("Combusto")
 st.caption("Gun Propellant Combustion Product Predictor with PAH/Soot Modeling")
 
+with st.sidebar.expander("🛠️ Developer Pro Portal", expanded=False):
+    dev_pass = st.text_input("Enter Developer Password:", type="password", key="dev_pass")
+    if dev_pass == "Freya":
+        st.success("Authorized. Local Admin Build Unlocked.")
+        
+        import zipfile
+        import io
+        from pathlib import Path
+        import os
+        
+        def generate_zip():
+            memory_file = io.BytesIO()
+            base_dir = Path(__file__).parent
+            with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(base_dir):
+                    if '.git' in root or '__pycache__' in root or '.pytest_cache' in root:
+                        continue
+                    for file in files:
+                        if file.endswith('.pyc') or file == '.env' or '.sqlite' in file:
+                            continue
+                        file_path = Path(root) / file
+                        arcname = file_path.relative_to(base_dir)
+                        zf.write(file_path, arcname)
+            memory_file.seek(0)
+            return memory_file
+
+        st.download_button(
+            label="📥 Download Combusto Desktop (.zip)",
+            data=generate_zip(),
+            file_name="Combusto_Pro_Desktop.zip",
+            mime="application/zip",
+            type="primary"
+        )
+    elif dev_pass:
+        st.error("Incorrect password.")
+
 # ---------------------------------------------------------------------------
 # Password Protection
 # ---------------------------------------------------------------------------
