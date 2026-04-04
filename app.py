@@ -478,7 +478,7 @@ def _kamlet_jacobs(a, b, c, d, mw, hf_kJ_per_mol, rho):
 # ---------------------------------------------------------------------------
 
 # --- Formulation Control Bar ---
-_top_col1, _top_col2, _top_col_btns = st.columns([2, 1, 3])
+_top_col1, _top_col2 = st.columns(2)
 
 formulation_names = [f.name for f in st.session_state.formulations]
 
@@ -502,41 +502,45 @@ with _top_col2:
     else:
         st.session_state.compare_idx = None
 
-with _top_col_btns:
-    st.markdown("**Controls:**")
-    _b1, _b2, _b3, _b4, _b5 = st.columns(5)
-    with _b1:
-        if st.button("Copy"):
-            src = st.session_state.formulations[st.session_state.selected_idx]
-            from combusto.models import Formulation, PropellantComponent
-            new_f = Formulation(
-                name=f"{src.name} (copy)",
-                components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],
-                description=src.description,
-            )
-            st.session_state.formulations.append(new_f)
-            st.session_state.selected_idx = len(st.session_state.formulations) - 1
+st.markdown("**Formulation Controls:**")
+_b1, _b2, _b3 = st.columns(3)
+with _b1:
+    if st.button("Copy Formulation", use_container_width=True):
+        src = st.session_state.formulations[st.session_state.selected_idx]
+        from combusto.models import Formulation, PropellantComponent
+        new_f = Formulation(
+            name=f"{src.name} (copy)",
+            components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],
+            description=src.description,
+        )
+        st.session_state.formulations.append(new_f)
+        st.session_state.selected_idx = len(st.session_state.formulations) - 1
+        st.rerun()
+with _b2:
+    if st.button("New Formulation", use_container_width=True):
+        from combusto.models import Formulation
+        st.session_state.formulations.append(Formulation(name=f"Custom {len(st.session_state.formulations) + 1}"))
+        st.session_state.selected_idx = len(st.session_state.formulations) - 1
+        st.rerun()
+with _b3:
+    if len(st.session_state.formulations) > 1:
+        if st.button("Delete Formulation", use_container_width=True):
+            st.session_state.formulations.pop(st.session_state.selected_idx)
+            st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
             st.rerun()
-    with _b2:
-        if st.button("New"):
-            from combusto.models import Formulation
-            st.session_state.formulations.append(Formulation(name=f"Custom {len(st.session_state.formulations) + 1}"))
-            st.session_state.selected_idx = len(st.session_state.formulations) - 1
-            st.rerun()
-    with _b3:
-        if len(st.session_state.formulations) > 1:
-            if st.button("Delete"):
-                st.session_state.formulations.pop(st.session_state.selected_idx)
-                st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
-                st.rerun()
-    with _b4:
-        if st.button("Save"):
+
+with st.expander("💾 Save & Load JSON Formulations"):
+    _c_save, _c_load = st.columns(2)
+    with _c_save:
+        st.markdown("**Export to internal storage:**")
+        if st.button("Save Current Session", use_container_width=True):
             from pathlib import Path
             save_path = Path("data/custom_formulations.json")
             from combusto.presets import save_formulations
             save_formulations(st.session_state.formulations, save_path)
-            st.success(f"Saved")
-    with _b5:
+            st.success(f"Saved formulations")
+    with _c_load:
+        st.markdown("**Import raw JSON:**")
         import json
         uploaded = st.file_uploader("Load JSON", type="json", key="load_file", label_visibility="collapsed")
         if uploaded:
@@ -545,7 +549,7 @@ with _top_col_btns:
                 data = json.load(uploaded)
                 loaded = [formulation_from_dict(e) for e in data["formulations"]]
                 st.session_state.formulations.extend(loaded)
-                st.success(f"Loaded {len(loaded)}")
+                st.success(f"Loaded {len(loaded)} formulations")
                 st.rerun()
             except Exception as e:
                 st.error("Invalid file")
@@ -566,10 +570,18 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
         """)
     col_name, col_desc = st.columns([1, 2])
     with col_name:
-        new_name = st.text_input("Formulation name", value=formulation.name, key="form_name")
+        new_name = st.text_input(
+            "Formulation name", 
+            value=formulation.name, 
+            key=f"form_name_{st.session_state.selected_idx}"
+        )
         formulation.name = new_name
     with col_desc:
-        new_desc = st.text_input("Description", value=formulation.description, key="form_desc")
+        new_desc = st.text_input(
+            "Description", 
+            value=formulation.description, 
+            key=f"form_desc_{st.session_state.selected_idx}"
+        )
         formulation.description = new_desc
     st.session_state.formulations[st.session_state.selected_idx] = formulation
 
