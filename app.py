@@ -315,88 +315,6 @@ if "species_db" not in st.session_state:
 # ---------------------------------------------------------------------------
 # Sidebar â€” formulation management
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.header("Formulation Manager")
-
-    formulation_names = [f.name for f in st.session_state.formulations]
-    selected_name = st.selectbox(
-        "Select formulation",
-        formulation_names,
-        index=min(st.session_state.selected_idx, len(formulation_names) - 1),
-        key="formulation_select",
-    )
-    st.session_state.selected_idx = formulation_names.index(selected_name)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Copy", use_container_width=True, help="Duplicate this formulation"):
-            src = st.session_state.formulations[st.session_state.selected_idx]
-            new_f = Formulation(
-                name=f"{src.name} (copy)",
-                components=[
-                    PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298)
-                    for c in src.components
-                ],
-                description=src.description,
-            )
-            st.session_state.formulations.append(new_f)
-            st.session_state.selected_idx = len(st.session_state.formulations) - 1
-            st.rerun()
-    with col2:
-        if st.button("New", use_container_width=True):
-            st.session_state.formulations.append(
-                Formulation(name=f"Custom {len(st.session_state.formulations) + 1}")
-            )
-            st.session_state.selected_idx = len(st.session_state.formulations) - 1
-            st.rerun()
-    with col3:
-        if len(st.session_state.formulations) > 1:
-            if st.button("Delete", use_container_width=True):
-                st.session_state.formulations.pop(st.session_state.selected_idx)
-                st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
-                st.rerun()
-
-    st.divider()
-
-    # Save / Load
-    st.subheader("Save / Load")
-    if st.button("Save all", use_container_width=True):
-        save_path = Path("data/custom_formulations.json")
-        save_formulations(st.session_state.formulations, save_path)
-        st.success(f"Saved to {save_path}")
-    uploaded = st.file_uploader("Load JSON", type="json", key="load_file", label_visibility="collapsed")
-    if uploaded:
-        try:
-            data = json.load(uploaded)
-            loaded = [formulation_from_dict(e) for e in data["formulations"]]
-            st.session_state.formulations.extend(loaded)
-            st.success(f"Loaded {len(loaded)} formulation(s)")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Invalid file: {e}")
-
-    st.divider()
-    st.subheader("Compare")
-    compare_options = ["None"] + [
-        n for i, n in enumerate(formulation_names) if i != st.session_state.selected_idx
-    ]
-    compare_choice = st.selectbox("Compare with", compare_options)
-    if compare_choice != "None":
-        st.session_state.compare_idx = formulation_names.index(compare_choice)
-    else:
-        st.session_state.compare_idx = None
-
-    # Species DB info
-    st.divider()
-    db = st.session_state.species_db
-    n_small = len([s for s in db.values() if s.category == "small"])
-    n_pah = len([s for s in db.values() if s.category in ("pah", "lump")])
-    n_metal = len([s for s in db.values() if s.category == "metal_oxide"])
-    st.caption(f"Species DB: {n_small} small, {n_pah} PAH/soot, {n_metal} metal oxides")
-
-# ---------------------------------------------------------------------------
-# VoD Estimator â€” Kamlet-Jacobs + Chapman-Jouguet helpers
-# ---------------------------------------------------------------------------
 import re as _re
 
 _VOD_PRESETS = {
@@ -558,10 +476,84 @@ def _kamlet_jacobs(a, b, c, d, mw, hf_kJ_per_mol, rho):
 # ---------------------------------------------------------------------------
 # Main area
 # ---------------------------------------------------------------------------
+
+# --- Formulation Control Bar ---
+_top_col1, _top_col2, _top_col_btns = st.columns([2, 1, 3])
+
+formulation_names = [f.name for f in st.session_state.formulations]
+
+with _top_col1:
+    st.markdown("**Select Active Formulation:**")
+    selected_name = st.selectbox(
+        "Select Active Formulation",
+        formulation_names,
+        index=min(st.session_state.selected_idx, len(formulation_names) - 1),
+        key="formulation_select",
+        label_visibility="collapsed"
+    )
+    st.session_state.selected_idx = formulation_names.index(selected_name)
+
+with _top_col2:
+    st.markdown("**Compare against:**")
+    compare_options = ["None"] + [n for i, n in enumerate(formulation_names) if i != st.session_state.selected_idx]
+    compare_choice = st.selectbox("Compare with", compare_options, label_visibility="collapsed")
+    if compare_choice != "None":
+        st.session_state.compare_idx = formulation_names.index(compare_choice)
+    else:
+        st.session_state.compare_idx = None
+
+with _top_col_btns:
+    st.markdown("**Controls:**")
+    _b1, _b2, _b3, _b4, _b5 = st.columns(5)
+    with _b1:
+        if st.button("Copy"):
+            src = st.session_state.formulations[st.session_state.selected_idx]
+            from combusto.models import Formulation, PropellantComponent
+            new_f = Formulation(
+                name=f"{src.name} (copy)",
+                components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],
+                description=src.description,
+            )
+            st.session_state.formulations.append(new_f)
+            st.session_state.selected_idx = len(st.session_state.formulations) - 1
+            st.rerun()
+    with _b2:
+        if st.button("New"):
+            from combusto.models import Formulation
+            st.session_state.formulations.append(Formulation(name=f"Custom {len(st.session_state.formulations) + 1}"))
+            st.session_state.selected_idx = len(st.session_state.formulations) - 1
+            st.rerun()
+    with _b3:
+        if len(st.session_state.formulations) > 1:
+            if st.button("Delete"):
+                st.session_state.formulations.pop(st.session_state.selected_idx)
+                st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
+                st.rerun()
+    with _b4:
+        if st.button("Save"):
+            from pathlib import Path
+            save_path = Path("data/custom_formulations.json")
+            from combusto.presets import save_formulations
+            save_formulations(st.session_state.formulations, save_path)
+            st.success(f"Saved")
+    with _b5:
+        import json
+        uploaded = st.file_uploader("Load JSON", type="json", key="load_file", label_visibility="collapsed")
+        if uploaded:
+            try:
+                from combusto.presets import formulation_from_dict
+                data = json.load(uploaded)
+                loaded = [formulation_from_dict(e) for e in data["formulations"]]
+                st.session_state.formulations.extend(loaded)
+                st.success(f"Loaded {len(loaded)}")
+                st.rerun()
+            except Exception as e:
+                st.error("Invalid file")
+
 formulation = st.session_state.formulations[st.session_state.selected_idx]
 
 # ===== Formulation Editor (Top Level) =====
-with st.expander(f"Active Formulation: {formulation.name}", expanded=True):
+with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=True):
     with st.expander("ℹ️  How to use — Formulation Editor", expanded=False):
         st.markdown("""
         **Define your gun propellant ingredients here.**
