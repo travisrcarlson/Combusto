@@ -481,29 +481,7 @@ def _kamlet_jacobs(a, b, c, d, mw, hf_kJ_per_mol, rho):
 # ---------------------------------------------------------------------------
 
 # --- Formulation Control Bar ---
-_top_col1, _top_col2 = st.columns(2)
-
 formulation_names = [f.name for f in st.session_state.formulations]
-
-with _top_col1:
-    st.markdown("**Select Active Formulation:**")
-    selected_name = st.selectbox(
-        "Select Active Formulation",
-        formulation_names,
-        index=min(st.session_state.selected_idx, len(formulation_names) - 1),
-        key="formulation_select",
-        label_visibility="collapsed"
-    )
-    st.session_state.selected_idx = formulation_names.index(selected_name)
-
-with _top_col2:
-    st.markdown("**Compare against:**")
-    compare_options = ["None"] + [n for i, n in enumerate(formulation_names) if i != st.session_state.selected_idx]
-    compare_choice = st.selectbox("Compare with", compare_options, label_visibility="collapsed")
-    if compare_choice != "None":
-        st.session_state.compare_idx = formulation_names.index(compare_choice)
-    else:
-        st.session_state.compare_idx = None
 
 st.markdown("**Library Import:**")
 _lib_col1, _lib_col2 = st.columns([3, 1])
@@ -528,33 +506,6 @@ with _lib_col2:
         st.session_state.formulations.append(new_f)
         st.session_state.selected_idx = len(st.session_state.formulations) - 1
         st.rerun()
-
-st.markdown("**Formulation Controls:**")
-_b1, _b2, _b3 = st.columns(3)
-with _b1:
-    if st.button("Copy Formulation", use_container_width=True):
-        src = st.session_state.formulations[st.session_state.selected_idx]
-        from combusto.models import Formulation, PropellantComponent
-        new_f = Formulation(
-            name=f"{src.name} (copy)",
-            components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],
-            description=src.description,
-        )
-        st.session_state.formulations.append(new_f)
-        st.session_state.selected_idx = len(st.session_state.formulations) - 1
-        st.rerun()
-with _b2:
-    if st.button("New Formulation", use_container_width=True):
-        from combusto.models import Formulation
-        st.session_state.formulations.append(Formulation(name=f"Custom {len(st.session_state.formulations) + 1}"))
-        st.session_state.selected_idx = len(st.session_state.formulations) - 1
-        st.rerun()
-with _b3:
-    if len(st.session_state.formulations) > 1:
-        if st.button("Delete Formulation", use_container_width=True):
-            st.session_state.formulations.pop(st.session_state.selected_idx)
-            st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
-            st.rerun()
 
 with st.expander("💾 Save & Load JSON Formulations"):
     _c_save, _c_load = st.columns(2)
@@ -605,6 +556,56 @@ with st.expander("📊 View All Loaded Formulations"):
         })
         
     st.dataframe(pd.DataFrame(summary_data).set_index("idx"), use_container_width=True)
+
+st.markdown("---")
+_top_col1, _top_col2 = st.columns(2)
+
+with _top_col1:
+    st.markdown("**Select Active Formulation:**")
+    selected_name = st.selectbox(
+        "Select Active Formulation",
+        formulation_names,
+        index=min(st.session_state.selected_idx, len(formulation_names) - 1),
+        key="formulation_select",
+        label_visibility="collapsed"
+    )
+    st.session_state.selected_idx = formulation_names.index(selected_name)
+
+with _top_col2:
+    st.markdown("**Compare against:**")
+    compare_options = ["None"] + [n for i, n in enumerate(formulation_names) if i != st.session_state.selected_idx]
+    compare_choice = st.selectbox("Compare with", compare_options, label_visibility="collapsed")
+    if compare_choice != "None":
+        st.session_state.compare_idx = formulation_names.index(compare_choice)
+    else:
+        st.session_state.compare_idx = None
+
+st.markdown("**Formulation Controls:**")
+_b1, _b2, _b3 = st.columns(3)
+with _b1:
+    if st.button("Copy Formulation", use_container_width=True):
+        src = st.session_state.formulations[st.session_state.selected_idx]
+        from combusto.models import Formulation, PropellantComponent
+        new_f = Formulation(
+            name=f"{src.name} (copy)",
+            components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],
+            description=src.description,
+        )
+        st.session_state.formulations.append(new_f)
+        st.session_state.selected_idx = len(st.session_state.formulations) - 1
+        st.rerun()
+with _b2:
+    if st.button("New Formulation", use_container_width=True):
+        from combusto.models import Formulation
+        st.session_state.formulations.append(Formulation(name=f"Custom {len(st.session_state.formulations) + 1}"))
+        st.session_state.selected_idx = len(st.session_state.formulations) - 1
+        st.rerun()
+with _b3:
+    if len(st.session_state.formulations) > 1:
+        if st.button("Delete Formulation", use_container_width=True):
+            st.session_state.formulations.pop(st.session_state.selected_idx)
+            st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
+            st.rerun()
 
 formulation = st.session_state.formulations[st.session_state.selected_idx]
 
