@@ -164,8 +164,8 @@ class CombustionConditions:
     """Operating conditions for a combustion scenario."""
     temperature_k: float = 298.15  # Initial temperature (K)
     pressure_atm: float = 1.0  # Pressure (atm)
-    mode: str = "isobaric"  # "isobaric" or "isochoric"
-    loading_density: Optional[float] = None  # g/cm³ (for isochoric)
+    mode: str = "isobaric"  # "isobaric", "isochoric", or "bomb_calorimeter"
+    loading_density: Optional[float] = None  # g/cm³ (for isochoric / bomb_calorimeter)
     chamber_volume_cm3: Optional[float] = None
     propellant_mass_g: Optional[float] = None
     inert_gas: Optional[str] = None  # e.g. "N2", "Ar"
@@ -214,5 +214,8 @@ class CombustionResult:
     force_constant_j_per_g: float = 0.0  # propellant force = n_gas * R * T_ad per gram
     mean_molecular_weight: float = 0.0
     gamma: float = 0.0  # ratio of specific heats Cp/Cv for gas mixture
+    heat_of_explosion_j_per_g: float = 0.0
+    specific_impulse_s: float = 0.0
+    gas_volume_l_per_kg: float = 0.0
     converged: bool = False
     iterations: int = 0

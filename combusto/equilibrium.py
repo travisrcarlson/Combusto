@@ -97,6 +97,9 @@ def solve_equilibrium(
     T = temperature_k if temperature_k else 2500.0
     P = conditions.pressure_atm
 
+    if conditions.mode == "bomb_calorimeter":
+        T = 298.15
+
     # --- Step 1: Elemental composition (mol per gram propellant) ---
     elem_per_gram = formulation.elemental_composition()
 
@@ -330,6 +333,39 @@ def solve_equilibrium(
         else:
             computed_pressure_atm = float("inf")
 
+    # --- Standard Energetic Metrics ---
+    # Gas volume V0 (L/kg at standard 273.15K, 1 atm)
+    gas_volume_l_per_kg = gas_moles_total * 1000.0 * 22.414
+
+    # Specific Impulse Isp (vacuum, assuming expansion to 1 atm)
+    specific_impulse_s = 0.0
+    if gamma > 1.0 and mean_mw > 0:
+        pe = 1.0
+        pc = max(P, 1.01) # Avoid negative ratio if P <= 1 atm
+        g0 = 9.80665
+        r_spec = R_GAS / (mean_mw / 1000.0) # J/(kg K)
+        term1 = (2 * gamma / (gamma - 1)) * r_spec * t_ad
+        term2 = 1.0 - (pe / pc)**((gamma - 1) / gamma)
+        if term1 * term2 > 0:
+            v_e = math.sqrt(term1 * term2)
+            specific_impulse_s = v_e / g0
+
+    # Heat of Explosion (Qv) for Bomb Calorimeter
+    # delta_U = delta_H - delta(nRT)
+    h_prod_298 = sum(
+        moles * enthalpy(species_lookup[name], 298.15)
+        for name, moles in all_moles.items()
+    )
+    delta_h_298 = h_prod_298 - h_react
+    
+    # If not in bomb mode, we approximate Qv by assuming H2O condenses
+    n_gas_298 = gas_moles_total
+    if conditions.mode != "bomb_calorimeter" and "H2O" in species_lookup and species_lookup["H2O"].phase == "gas":
+        n_gas_298 -= all_moles.get("H2O", 0.0)
+
+    delta_u_298 = delta_h_298 - n_gas_298 * R_GAS * 298.15
+    heat_of_explosion_j_per_g = -1.0 * delta_u_298
+
     return CombustionResult(
         species_moles=all_moles,
         species_mole_fractions=mole_fracs,
@@ -349,6 +385,9 @@ def solve_equilibrium(
         force_constant_j_per_g=force_constant,
         mean_molecular_weight=mean_mw,
         gamma=gamma,
+        heat_of_explosion_j_per_g=heat_of_explosion_j_per_g,
+        specific_impulse_s=specific_impulse_s,
+        gas_volume_l_per_kg=gas_volume_l_per_kg,
     )
 
 

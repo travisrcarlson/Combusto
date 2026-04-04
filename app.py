@@ -1,4 +1,4 @@
-﻿"""Combusto â€” Gun Propellant Combustion Product Predictor.
+"""Combusto â€” Gun Propellant Combustion Product Predictor.
 
 Run with: streamlit run app.py
 """
@@ -760,7 +760,7 @@ with tab2:
 
     col1, col2, col3, _spacer = st.columns([1, 1, 1, 1])
     with col1:
-        mode = st.selectbox("Mode", ["isobaric", "isochoric", "adiabatic (self-consistent)"])
+        mode = st.selectbox("Mode", ["isobaric", "isochoric", "adiabatic (self-consistent)", "bomb_calorimeter (isochoric, 298.15K)"])
         pressure = st.number_input("Pressure (atm)", 0.1, 10000.0, 100.0, 10.0)
     with col2:
         eq_temp = st.number_input(
@@ -773,7 +773,7 @@ with tab2:
     with col3:
         loading_density = None
         covolume = 1.0e-3
-        if mode == "isochoric":
+        if mode in ("isochoric", "bomb_calorimeter (isochoric, 298.15K)"):
             loading_density = st.number_input(
                 "Loading density (g/cmÂ³)", 0.01, 2.0, 0.2, 0.01,
                 help="Propellant mass per unit chamber volume",
@@ -811,10 +811,16 @@ with tab2:
                     pah_distribution=pah_config.pah_distribution,
                 )
 
+    _cond_mode = "isobaric"
+    if mode == "isochoric":
+        _cond_mode = "isochoric"
+    elif mode == "bomb_calorimeter (isochoric, 298.15K)":
+        _cond_mode = "bomb_calorimeter"
+
     conditions = CombustionConditions(
         temperature_k=init_temp,
         pressure_atm=pressure,
-        mode="isochoric" if mode == "isochoric" else "isobaric",
+        mode=_cond_mode,
         loading_density=loading_density,
         covolume_m3_per_mol=covolume,
     )
@@ -895,7 +901,7 @@ with tab3:
         m1.metric("phi", f"{result.equivalence_ratio:.3f}")
         m2.metric("OB%", f"{result.oxygen_balance_pct:.2f}")
         m3.metric("T_ad (K)", f"{result.adiabatic_flame_temp_k:.0f}")
-        m4.metric("Force (J/g)", f"{result.force_constant_j_per_g:.0f}")
+        m4.metric("Impetus (J/g)", f"{result.force_constant_j_per_g:.0f}")
         m5.metric("gamma", f"{result.gamma:.3f}")
 
         # Key metrics row 2
@@ -908,6 +914,15 @@ with tab3:
         else:
             m9.metric("P_chamber (atm)", "N/A" if result.computed_pressure_atm == 0 else "Overflow")
         m10.metric("T_equil (K)", f"{result.temperature_k:.0f}")
+
+        # Key metrics row 3 - Lab Standards
+        st.markdown("#### standard energetic metrics")
+        m11, m12, m13, m14, m15 = st.columns(5)
+        m11.metric("Q_v (J/g)", f"{result.heat_of_explosion_j_per_g:.0f}", help="Calorimetric heat of explosion (water condensed)")
+        m12.metric("I_sp (s)", f"{result.specific_impulse_s:.1f}", help="Ideal vacuum specific impulse (1D isotropic)")
+        m13.metric("V_0 (L/kg)", f"{result.gas_volume_l_per_kg:.1f}", help="Gas volume at STP (273.15 K, 1 atm)")
+        m14.metric("Total Moles", f"{sum(result.species_moles.values()):.5f}")
+        m15.metric("Exhaust %", f"{(result.gas_moles_total * result.mean_molecular_weight * 100):.1f}%")
 
         # Product distribution
         st.markdown("### Product Distribution")
