@@ -506,6 +506,10 @@ with _top_col2:
 st.markdown("**Library Import:**")
 _lib_col1, _lib_col2 = st.columns([3, 1])
 with _lib_col1:
+    import sys, importlib
+    import combusto.presets
+    if "combusto.presets" in sys.modules:
+        importlib.reload(sys.modules["combusto.presets"])
     from combusto.presets import get_all_library_templates
     lib_templates = get_all_library_templates()
     lib_names = [e.name for e in lib_templates]
