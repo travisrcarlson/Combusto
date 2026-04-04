@@ -502,6 +502,25 @@ with _top_col2:
     else:
         st.session_state.compare_idx = None
 
+st.markdown("**Library Import:**")
+_lib_col1, _lib_col2 = st.columns([3, 1])
+with _lib_col1:
+    from combusto.presets import STANDARD_EXPLOSIVES
+    lib_names = [e.name for e in STANDARD_EXPLOSIVES]
+    selected_lib_idx = st.selectbox("Standard Explosive Library", range(len(lib_names)), format_func=lambda i: f"{STANDARD_EXPLOSIVES[i].name} — {STANDARD_EXPLOSIVES[i].description}", label_visibility="collapsed")
+with _lib_col2:
+    if st.button("➕ Inject into Session", use_container_width=True):
+        from combusto.models import Formulation, PropellantComponent
+        src = STANDARD_EXPLOSIVES[selected_lib_idx]
+        new_f = Formulation(
+            name=src.name,
+            components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],
+            description=src.description,
+        )
+        st.session_state.formulations.append(new_f)
+        st.session_state.selected_idx = len(st.session_state.formulations) - 1
+        st.rerun()
+
 st.markdown("**Formulation Controls:**")
 _b1, _b2, _b3 = st.columns(3)
 with _b1:
@@ -553,6 +572,31 @@ with st.expander("💾 Save & Load JSON Formulations"):
                 st.rerun()
             except Exception as e:
                 st.error("Invalid file")
+
+with st.expander("📊 View All Loaded Formulations"):
+    import pandas as pd
+    from combusto.thermo import equivalence_ratio, oxygen_balance
+    
+    summary_data = []
+    for idx, f in enumerate(st.session_state.formulations):
+        try:
+            phi_val = equivalence_ratio(f)
+            ob_val = oxygen_balance(f)
+        except Exception:
+            phi_val = 0.0
+            ob_val = 0.0
+            
+        components_str = ", ".join([f"{c.name} ({c.mass_fraction*100:.1f}%)" for c in f.components])
+        
+        summary_data.append({
+            "idx": idx,
+            "Name": f.name,
+            "Equivalence Ratio (φ)": round(phi_val, 3),
+            "Oxygen Balance (%)": round(ob_val, 1),
+            "Components": components_str
+        })
+        
+    st.dataframe(pd.DataFrame(summary_data).set_index("idx"), use_container_width=True)
 
 formulation = st.session_state.formulations[st.session_state.selected_idx]
 
