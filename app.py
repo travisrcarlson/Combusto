@@ -6,6 +6,7 @@ Run with: streamlit run app.py
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import streamlit as st
@@ -741,7 +742,7 @@ with st.expander(f"Active Formulation: {formulation.name}", expanded=True):
 
 st.markdown("<br>", unsafe_allow_html=True)
 tab2, tab3, tab_cal, tab_perf, tab4, tab5 = st.tabs([
-    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Rocket Performance", "Sensitivity", "VoD Estimator"
+    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "VoD Estimator"
 ])
 
 # ===== Tab 2: Conditions & Run =====
@@ -1106,9 +1107,9 @@ with tab_cal:
                 cal_df = result_to_dataframe(res_cal)
                 st.dataframe(cal_df, use_container_width=True, hide_index=True)
 
-# ===== Tab_Perf: Rocket Performance =====
+# ===== Tab_Perf: Isentropic Expansion =====
 with tab_perf:
-    st.subheader("Rocket Performance (Vacuum Isp)")
+    st.subheader("Isentropic Expansion Performance")
     c1, c2 = st.columns(2)
     with c1:
         pc_atm = st.number_input("Chamber Pressure Pc (atm)", 10.0, 500.0, 68.0, 1.0)
