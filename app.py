@@ -628,8 +628,8 @@ def _kamlet_jacobs(a, b, c, d, mw, hf_kJ_per_mol, rho):
 # ---------------------------------------------------------------------------
 formulation = st.session_state.formulations[st.session_state.selected_idx]
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Formulation", "Conditions & Run", "Results", "Sensitivity", "VoD Estimator"
+tab1, tab2, tab3, tab_cal, tab_perf, tab4, tab5 = st.tabs([
+    "Formulation", "Conditions & Run", "Results", "Bomb Calorimetry", "Rocket Performance", "Sensitivity", "VoD Estimator"
 ])
 
 
@@ -760,7 +760,7 @@ with tab2:
 
     col1, col2, col3, _spacer = st.columns([1, 1, 1, 1])
     with col1:
-        mode = st.selectbox("Mode", ["isobaric", "isochoric", "adiabatic (self-consistent)", "bomb_calorimeter (isochoric, 298.15K)"])
+        mode = st.selectbox("Mode", ["isobaric", "isochoric", "adiabatic (self-consistent)"])
         pressure = st.number_input("Pressure (atm)", 0.1, 10000.0, 100.0, 10.0)
     with col2:
         eq_temp = st.number_input(
@@ -773,7 +773,7 @@ with tab2:
     with col3:
         loading_density = None
         covolume = 1.0e-3
-        if mode in ("isochoric", "bomb_calorimeter (isochoric, 298.15K)"):
+        if mode == "isochoric":
             loading_density = st.number_input(
                 "Loading density (g/cmÂ³)", 0.01, 2.0, 0.2, 0.01,
                 help="Propellant mass per unit chamber volume",
@@ -811,16 +811,10 @@ with tab2:
                     pah_distribution=pah_config.pah_distribution,
                 )
 
-    _cond_mode = "isobaric"
-    if mode == "isochoric":
-        _cond_mode = "isochoric"
-    elif mode == "bomb_calorimeter (isochoric, 298.15K)":
-        _cond_mode = "bomb_calorimeter"
-
     conditions = CombustionConditions(
         temperature_k=init_temp,
         pressure_atm=pressure,
-        mode=_cond_mode,
+        mode="isochoric" if mode == "isochoric" else "isobaric",
         loading_density=loading_density,
         covolume_m3_per_mol=covolume,
     )
@@ -914,15 +908,6 @@ with tab3:
         else:
             m9.metric("P_chamber (atm)", "N/A" if result.computed_pressure_atm == 0 else "Overflow")
         m10.metric("T_equil (K)", f"{result.temperature_k:.0f}")
-
-        # Key metrics row 3 - Lab Standards
-        st.markdown("#### standard energetic metrics")
-        m11, m12, m13, m14, m15 = st.columns(5)
-        m11.metric("Q_v (J/g)", f"{result.heat_of_explosion_j_per_g:.0f}", help="Calorimetric heat of explosion (water condensed)")
-        m12.metric("I_sp (s)", f"{result.specific_impulse_s:.1f}", help="Ideal vacuum specific impulse (1D isotropic)")
-        m13.metric("V_0 (L/kg)", f"{result.gas_volume_l_per_kg:.1f}", help="Gas volume at STP (273.15 K, 1 atm)")
-        m14.metric("Total Moles", f"{sum(result.species_moles.values()):.5f}")
-        m15.metric("Exhaust %", f"{(result.gas_moles_total * result.mean_molecular_weight * 100):.1f}%")
 
         # Product distribution
         st.markdown("### Product Distribution")
@@ -1089,6 +1074,83 @@ with tab3:
                 file_name=f"combusto_{active_name.replace(' ', '_')}.json",
                 mime="application/json", use_container_width=True,
             )
+
+# ===== Tab_Cal: Bomb Calorimetry =====
+with tab_cal:
+    st.subheader("Bomb Calorimetry Test")
+    st.markdown("Simulate a constant volume bomb calorimeter test (isothermal at 298.15 K).")
+    run_cal = st.button("▶ Run Bomb Calorimeter Simulation", type="primary")
+    if run_cal:
+        if not formulation.components:
+            st.error("Add at least one component to the formulation.")
+        else:
+            with st.spinner("Computing theoretical heat of explosion (Qv)..."):
+                cal_conditions = CombustionConditions(
+                    temperature_k=298.15,
+                    pressure_atm=1.0,
+                    mode="bomb_calorimeter",
+                    loading_density=0.1,
+                    covolume_m3_per_mol=1e-3,
+                )
+                res_cal = solve_equilibrium(
+                    formulation, cal_conditions, PRESETS["moderate"],
+                    species_db=st.session_state.species_db,
+                    temperature_k=298.15,
+                )
+                st.success("Simulation complete.")
+                m1, m2 = st.columns(2)
+                m1.metric("Calorimetric Heat of Explosion (Q_v)", f"{res_cal.heat_of_explosion_j_per_g:.0f} J/g")
+                m2.metric("Gas Moles / g (at 298K)", f"{res_cal.gas_moles_total:.5f}")
+                
+                st.markdown("#### Product States at 298.15 K")
+                cal_df = result_to_dataframe(res_cal)
+                st.dataframe(cal_df, use_container_width=True, hide_index=True)
+
+# ===== Tab_Perf: Rocket Performance =====
+with tab_perf:
+    st.subheader("Rocket Performance (Vacuum Isp)")
+    c1, c2 = st.columns(2)
+    with c1:
+        pc_atm = st.number_input("Chamber Pressure Pc (atm)", 10.0, 500.0, 68.0, 1.0)
+    with c2:
+        pe_atm = st.number_input("Exit Pressure Pe (atm)", 0.001, 10.0, 1.0, 0.1)
+
+    run_perf = st.button("▶ Calculate Performance", type="primary", key="btn_perf")
+    if run_perf:
+        if not formulation.components:
+            st.error("Add at least one component to the formulation.")
+        else:
+            with st.spinner("Solving adiabatic combustion..."):
+                perf_cond = CombustionConditions(temperature_k=298.15, pressure_atm=pc_atm, mode="isobaric")
+                res_perf = solve_equilibrium_adiabatic(
+                    formulation, perf_cond, PRESETS["moderate"],
+                    species_db=st.session_state.species_db,
+                    t_guess=2500.0,
+                )
+                if res_perf.converged:
+                    st.success("Calculation complete.")
+                    
+                    gamma = res_perf.gamma
+                    mean_mw_kg = res_perf.mean_molecular_weight / 1000.0
+                    t_ad = res_perf.adiabatic_flame_temp_k
+                    isp_s = 0.0
+                    if gamma > 1.0 and mean_mw_kg > 0:
+                        r_spec = 8.314462 / mean_mw_kg
+                        term1 = (2 * gamma / (gamma - 1)) * r_spec * t_ad
+                        term2 = 1.0 - (pe_atm / pc_atm)**((gamma - 1) / gamma)
+                        if term1 * term2 > 0:
+                            v_e = math.sqrt(term1 * term2)
+                            isp_s = v_e / 9.80665
+                            
+                    st.metric("Vacuum Specific Impulse (I_sp)", f"{isp_s:.1f} s")
+                    
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Tc (K)", f"{t_ad:.0f}")
+                    m2.metric("gamma", f"{gamma:.3f}")
+                    m3.metric("Mw (g/mol)", f"{res_perf.mean_molecular_weight:.2f}")
+                    m4.metric("Gas Volume V_0 (L/kg)", f"{res_perf.gas_volume_l_per_kg:.1f}")
+                else:
+                    st.error("Adiabatic flame temperature failed to converge.")
 
 # ===== Tab 4: Sensitivity Analysis =====
 with tab4:
