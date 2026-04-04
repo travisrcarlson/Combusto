@@ -624,18 +624,13 @@ def _kamlet_jacobs(a, b, c, d, mw, hf_kJ_per_mol, rho):
 
 
 # ---------------------------------------------------------------------------
-# Main area â€” tabs
+# Main area
 # ---------------------------------------------------------------------------
 formulation = st.session_state.formulations[st.session_state.selected_idx]
 
-tab1, tab2, tab3, tab_cal, tab_perf, tab4, tab5 = st.tabs([
-    "Formulation", "Conditions & Run", "Results", "Bomb Calorimetry", "Rocket Performance", "Sensitivity", "VoD Estimator"
-])
-
-
-# ===== Tab 1: Formulation Editor =====
-with tab1:
-    with st.expander("\u2139\ufe0f  How to use \u2014 Formulation Editor", expanded=False):
+# ===== Formulation Editor (Top Level) =====
+with st.expander(f"Active Formulation: {formulation.name}", expanded=True):
+    with st.expander("ℹ️  How to use — Formulation Editor", expanded=False):
         st.markdown("""
         **Define your gun propellant ingredients here.**
         - Add one row per component (Name, molecular formula, mass fraction, Hfâ‚‚â‚‰â‚ˆ).
@@ -744,9 +739,14 @@ with tab1:
             except Exception as e:
                 st.error(str(e))
 
+st.markdown("<br>", unsafe_allow_html=True)
+tab2, tab3, tab_cal, tab_perf, tab4, tab5 = st.tabs([
+    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Rocket Performance", "Sensitivity", "VoD Estimator"
+])
+
 # ===== Tab 2: Conditions & Run =====
 with tab2:
-    with st.expander("\u2139\ufe0f  How to use \u2014 Conditions & Run", expanded=False):
+    with st.expander("ℹ️  How to use — Conditions & Run", expanded=False):
         st.markdown("""
         **Configure combustion conditions and launch the equilibrium solver.**
         - **Mode**: *isobaric* (constant P), *isochoric* (constant V, closed chamber), or *adiabatic* (T solved iteratively).
@@ -1075,11 +1075,11 @@ with tab3:
                 mime="application/json", use_container_width=True,
             )
 
-# ===== Tab_Cal: Bomb Calorimetry =====
+# ===== Tab_Cal: Isothermal Calorimetry =====
 with tab_cal:
-    st.subheader("Bomb Calorimetry Test")
-    st.markdown("Simulate a constant volume bomb calorimeter test (isothermal at 298.15 K).")
-    run_cal = st.button("▶ Run Bomb Calorimeter Simulation", type="primary")
+    st.subheader("Isothermal Calorimetry Test")
+    st.markdown("Simulate a constant volume calorimetry test (isothermal at 298.15 K).")
+    run_cal = st.button("▶ Run Isothermal Calorimetry Simulation", type="primary")
     if run_cal:
         if not formulation.components:
             st.error("Add at least one component to the formulation.")
