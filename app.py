@@ -1009,6 +1009,13 @@ with tab3:
 
 # ===== Tab_Cal: Isothermal Calorimetry =====
 with tab_cal:
+    with st.expander("ℹ️  How to use — Isothermal Calorimetry", expanded=False):
+        st.markdown("""
+        **Simulate a constant volume bomb calorimeter test.**
+        - Calculates the theoretical Heat of Explosion ($Q_v$) for the active formulation.
+        - Automatically forces the system to an isothermal state at **298.15 K**, ensuring that water and other condensables are correctly handled.
+        - Click **▶ Run Isothermal Calorimetry Simulation** to compute energy density.
+        """)
     st.subheader("Isothermal Calorimetry Test")
     st.markdown("Simulate a constant volume calorimetry test (isothermal at 298.15 K).")
     run_cal = st.button("▶ Run Isothermal Calorimetry Simulation", type="primary")
@@ -1040,6 +1047,13 @@ with tab_cal:
 
 # ===== Tab_Perf: Isentropic Expansion =====
 with tab_perf:
+    with st.expander("ℹ️  How to use — Isentropic Expansion", expanded=False):
+        st.markdown("""
+        **Calculate ideal rocket performance parameters.**
+        - Uses the 1D equilibrium model to simulate adiabatic combustion at the given Chamber Pressure ($P_c$).
+        - Expands the gases isentropically to the Exit Pressure ($P_e$).
+        - Computes the theoretical Vacuum Specific Impulse ($I_{sp}$) and Gas generation Volume ($V_0$).
+        """)
     st.subheader("Isentropic Expansion Performance")
     c1, c2 = st.columns(2)
     with c1:
