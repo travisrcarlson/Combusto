@@ -302,8 +302,10 @@ if not check_password():
 # Session state init
 # ---------------------------------------------------------------------------
 if "formulations" not in st.session_state:
+    from combusto.presets import load_presets
     from combusto.models import Formulation
-    st.session_state.formulations = [Formulation(name="Custom Formulation")]
+    st.session_state.formulations = load_presets()
+    st.session_state.formulations.append(Formulation(name="Blank Custom"))
 if "selected_idx" not in st.session_state:
     st.session_state.selected_idx = 0
 if "compare_idx" not in st.session_state:
