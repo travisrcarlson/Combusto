@@ -1,0 +1,35 @@
+{
+  "_comment": "Standard empirical thermodynamic data for energetic formulation components. Hf_298 in kJ/mol.",
+  "ingredients": [
+    {"name": "Ammonium Perchlorate (AP)", "formula": "NH4ClO4", "hf_298": -295.8, "category": "oxidizer"},
+    {"name": "Ammonium Nitrate (AN)", "formula": "NH4NO3", "hf_298": -365.6, "category": "oxidizer"},
+    {"name": "Potassium Nitrate (KNO3)", "formula": "KNO3", "hf_298": -494.6, "category": "oxidizer"},
+    {"name": "Potassium Perchlorate", "formula": "KClO4", "hf_298": -432.8, "category": "oxidizer"},
+    
+    {"name": "RDX", "formula": "C3H6N6O6", "hf_298": 92.6, "category": "energetic"},
+    {"name": "HMX", "formula": "C4H8N8O8", "hf_298": 74.4, "category": "energetic"},
+    {"name": "TATB", "formula": "C6H6N6O6", "hf_298": -154.0, "category": "energetic"},
+    {"name": "TNT", "formula": "C7H5N3O6", "hf_298": -66.9, "category": "energetic"},
+    {"name": "PETN", "formula": "C5H8N4O12", "hf_298": -538.5, "category": "energetic"},
+    {"name": "Nitroglycerin (NG)", "formula": "C3H5N3O9", "hf_298": -370.0, "category": "energetic"},
+    {"name": "Nitroguanidine (NQ)", "formula": "CH4N4O2", "hf_298": -92.4, "category": "energetic"},
+    {"name": "Nitrocellulose (12.6% N)", "formula": "C6H7.3N2.7O9.9", "hf_298": -700.0, "category": "energetic_binder"},
+    
+    {"name": "Aluminum Powder", "formula": "Al", "hf_298": 0.0, "category": "fuel"},
+    {"name": "Magnesium Powder", "formula": "Mg", "hf_298": 0.0, "category": "fuel"},
+    {"name": "Boron Powder", "formula": "B", "hf_298": 0.0, "category": "fuel"},
+    {"name": "Charcoal / Carbon", "formula": "C", "hf_298": 0.0, "category": "fuel"},
+    {"name": "Sulfur", "formula": "S", "hf_298": 0.0, "category": "fuel"},
+    
+    {"name": "HTPB (Binder)", "formula": "C7.3H10.6O0.06", "hf_298": -15.0, "category": "binder"},
+    {"name": "PBAN (Binder)", "formula": "C6H7.9N0.3O1.2", "hf_298": -50.0, "category": "binder"},
+    {"name": "GAP (Binder)", "formula": "C3H5N3O", "hf_298": 113.8, "category": "energetic_binder"},
+    
+    {"name": "Dibutyl Phthalate (DBP)", "formula": "C16H22O4", "hf_298": -843.0, "category": "plasticizer"},
+    {"name": "Diethyl Phthalate (DEP)", "formula": "C12H14O4", "hf_298": -689.0, "category": "plasticizer"},
+    {"name": "Dioctyl Adipate (DOA)", "formula": "C22H42O4", "hf_298": -1300.0, "category": "plasticizer"},
+    
+    {"name": "Diphenylamine", "formula": "C12H11N", "hf_298": 130.0, "category": "stabilizer"},
+    {"name": "Ethyl Centralite", "formula": "C15H16N2O", "hf_298": -120.0, "category": "stabilizer"}
+  ]
+}

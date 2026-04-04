@@ -638,7 +638,34 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
         formulation.description = new_desc
     st.session_state.formulations[st.session_state.selected_idx] = formulation
 
-    st.markdown("**Components** â€” mass fractions should sum to 1.0")
+    st.markdown("**Empirical Ingredient Database Search**")
+    _ing_col1, _ing_col2 = st.columns([3, 1])
+    with _ing_col1:
+        from combusto.presets import load_ingredients
+        raw_ingredients = load_ingredients()
+        ing_opts = [f"{ing['name']}  ({ing['formula']} | {ing['hf_298']} kJ/mol)" for ing in raw_ingredients]
+        selected_ing_idx = st.selectbox(
+            "Search and inject standardized ingredients",
+            range(len(ing_opts)),
+            format_func=lambda i: ing_opts[i],
+            label_visibility="collapsed",
+            key=f"ing_search_{st.session_state.selected_idx}"
+        )
+    with _ing_col2:
+        if st.button("➕ Add to Formulation", use_container_width=True, key=f"add_ing_{st.session_state.selected_idx}"):
+            if raw_ingredients:
+                ing = raw_ingredients[selected_ing_idx]
+                from combusto.models import PropellantComponent
+                formulation.components.append(PropellantComponent(
+                    name=ing["name"],
+                    formula=ing["formula"],
+                    mass_fraction=0.0,
+                    hf_298=ing["hf_298"]
+                ))
+                st.session_state.formulations[st.session_state.selected_idx] = formulation
+                st.rerun()
+
+    st.markdown("**Components** — mass fractions should sum to 1.0")
 
     comp_data = []
     for c in formulation.components:

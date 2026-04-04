@@ -9,8 +9,18 @@ from typing import Dict, List
 from .models import Formulation, PropellantComponent
 
 _DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "propellants.json"
+_INGREDIENT_PATH = Path(__file__).resolve().parent.parent / "data" / "ingredients.json"
 
 STANDARD_EXPLOSIVES = [
+    Formulation(
+        name="Black Powder (Standard)",
+        description="Traditional 75/15/10 Gunpowder",
+        components=[
+            PropellantComponent(name="Potassium Nitrate", formula="KNO3", mass_fraction=0.75, hf_298=-494.6),
+            PropellantComponent(name="Charcoal", formula="C", mass_fraction=0.15, hf_298=0.0),
+            PropellantComponent(name="Sulfur", formula="S", mass_fraction=0.10, hf_298=0.0)
+        ]
+    ),
     Formulation(
         name="TNT",
         description="Trinitrotoluene standard base",
@@ -106,6 +116,14 @@ def load_presets(path: Path | None = None) -> List[Formulation]:
         )
     return formulations
 
+def load_ingredients(path: Path | None = None) -> List[Dict]:
+    """Load standard chemical ingredient formulations from JSON."""
+    path = path or _INGREDIENT_PATH
+    if not path.exists():
+        return []
+    with open(path, "r") as f:
+        data = json.load(f)
+    return data.get("ingredients", [])
 
 def get_preset_names(path: Path | None = None) -> List[str]:
     """Return list of preset formulation names."""
