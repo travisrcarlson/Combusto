@@ -575,7 +575,7 @@ with st.expander("💾 Save & Load JSON Formulations"):
 
 with st.expander("📊 View All Loaded Formulations"):
     import pandas as pd
-    from combusto.thermo import equivalence_ratio, oxygen_balance
+    from combusto.chemistry import equivalence_ratio, oxygen_balance
     
     summary_data = []
     for idx, f in enumerate(st.session_state.formulations):
