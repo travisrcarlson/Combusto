@@ -60,216 +60,152 @@ st.set_page_config(
 # Custom CSS for a clean, compact, work-friendly layout
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
-/* â”€â”€ Global typography & base â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* —— Global typography & base —— */
 html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
-/* â”€â”€ Main content area: tighter top padding, capped width â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Background gradient to ensure a deep space-lab theme */
+.stApp {
+    background: radial-gradient(circle at top left, #141724 0%, #0a0b10 100%) !important;
+}
+
+/* —— Main content area —— */
 .block-container {
-    padding-top: 1.25rem !important;
-    padding-bottom: 1rem !important;
-    padding-left: 2rem !important;
-    padding-right: 2rem !important;
+    padding-top: 2rem !important;
+    padding-bottom: 2rem !important;
     max-width: 1400px !important;
 }
 
-/* â”€â”€ App title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* —— App title —— */
 h1 {
-    font-size: 1.75rem !important;
+    font-size: 2.5rem !important;
     font-weight: 700 !important;
-    letter-spacing: -0.02em !important;
+    letter-spacing: -0.03em !important;
+    background: linear-gradient(90deg, #00f0ff 0%, #00bbff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
     margin-bottom: 0 !important;
     padding-bottom: 0 !important;
 }
 
-/* â”€â”€ Reduce gap below caption â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 div[data-testid="stCaptionContainer"] {
-    margin-bottom: 0.5rem !important;
-}
-
-/* â”€â”€ Tabs: folder-tab baseline spacing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-/* Fine-grained overrides are injected into <head> via JS below */
-div[data-baseweb="tab-list"] {
+    color: #a1aabf !important;
+    font-size: 1.1rem !important;
+    letter-spacing: 0.05em;
     margin-bottom: 1rem !important;
 }
-div[data-baseweb="tab-highlight"],
-div[data-baseweb="tab-border"] {
-    display: none !important;
-    height: 0 !important;
-}
 
-/* â”€â”€ Section headers (h2/h3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-h2 { font-size: 1.2rem !important; font-weight: 600 !important; margin-top: 0.5rem !important; }
-h3 { font-size: 1rem !important;   font-weight: 600 !important; margin-top: 0.5rem !important; }
-
-/* â”€â”€ Metric cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* —— Glassmorphism Metric cards —— */
 div[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
-    padding: 0.65rem 0.85rem !important;
-}
-div[data-testid="stMetric"] label {
-    font-size: 0.72rem !important;
-    font-weight: 500 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    opacity: 0.7;
-}
-div[data-testid="stMetricValue"] {
-    font-size: 1.35rem !important;
-    font-weight: 700 !important;
-    line-height: 1.2 !important;
-}
-div[data-testid="stMetricDelta"] {
-    font-size: 0.72rem !important;
+    background: rgba(20, 24, 39, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 240, 255, 0.1);
+    border-radius: 12px;
+    padding: 1rem !important;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
 }
 
-/* â”€â”€ Input fields: compact and readable â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-5px);
+    border: 1px solid rgba(0, 240, 255, 0.4);
+    box-shadow: 0 10px 20px rgba(0, 240, 255, 0.15);
+}
+
+div[data-testid="stMetric"] label {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #6ee6f5 !important;
+    opacity: 0.9;
+}
+
+div[data-testid="stMetricValue"] {
+    font-size: 1.8rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    text-shadow: 0 0 10px rgba(255,255,255,0.1);
+}
+
+/* —— Primary button (Run) with Neon Gradient —— */
+div[data-testid="stButton"] > button[kind="primary"] {
+    background: linear-gradient(135deg, #00f0ff 0%, #0077ff 100%) !important;
+    border: none !important;
+    color: #000 !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    padding: 0.6rem 2rem !important;
+    border-radius: 8px !important;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: all 0.2s ease-in-out !important;
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
+    margin: 1rem auto 0 auto !important;
+    max-width: 500px !important;
+    display: block;
+}
+
+div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #33f3ff 0%, #3399ff 100%) !important;
+    box-shadow: 0 0 25px rgba(0, 240, 255, 0.8) !important;
+    transform: scale(1.02);
+}
+
+/* —— Regular buttons —— */
+div[data-testid="stButton"] > button[kind="secondary"] {
+    background: rgba(255,255,255,0.05) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 6px !important;
+    transition: background 0.2s;
+}
+
+div[data-testid="stButton"] > button[kind="secondary"]:hover {
+    background: rgba(255,255,255,0.1) !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
+}
+
+/* —— Expanders —— */
+div[data-testid="stExpander"] {
+    background: rgba(10, 12, 20, 0.4);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 10px;
+}
+
+div[data-testid="stExpander"] summary {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: #e2e8f0 !important;
+}
+
+/* —— Input fields —— */
 div[data-testid="stTextInput"] input,
 div[data-testid="stNumberInput"] input,
 div[data-baseweb="select"] {
-    font-size: 0.875rem !important;
-    padding: 0.4rem 0.6rem !important;
-}
-
-/* â”€â”€ Labels above inputs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-label[data-testid="stWidgetLabel"] p {
-    font-size: 0.8rem !important;
-    font-weight: 500 !important;
-    margin-bottom: 0.15rem !important;
-}
-
-/* â”€â”€ Limit input group widths on wide screens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
-    gap: 0.5rem !important;
-}
-
-/* â”€â”€ Primary button (Run) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stButton"] > button[kind="primary"] {
-    max-width: 480px !important;
-    font-size: 0.9rem !important;
-    font-weight: 600 !important;
-    padding: 0.55rem 1.5rem !important;
-    border-radius: 8px !important;
-    letter-spacing: 0.02em;
-    display: block;
-    margin: 0.5rem auto 0 auto !important;
-}
-
-/* â”€â”€ Regular buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stButton"] > button {
-    font-size: 0.8rem !important;
-    padding: 0.35rem 0.5rem !important;
+    background: rgba(0,0,0,0.3) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
     border-radius: 6px !important;
-    font-weight: 500 !important;
-    white-space: nowrap !important;
+    color: #fff !important;
+}
+div[data-testid="stTextInput"] input:focus,
+div[data-testid="stNumberInput"] input:focus {
+    border: 1px solid #00f0ff !important;
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.3) !important;
 }
 
-/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-section[data-testid="stSidebar"] {
-    min-width: 220px !important;
-    max-width: 240px !important;
-}
-section[data-testid="stSidebar"] .block-container {
-    padding-top: 1rem !important;
-    padding-left: 0.9rem !important;
-    padding-right: 0.9rem !important;
-    max-width: 100% !important;
-}
-section[data-testid="stSidebar"] h1 {
-    font-size: 1rem !important;
-    font-weight: 700 !important;
-    margin-bottom: 0.5rem !important;
-}
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3 {
-    font-size: 0.8rem !important;
-    font-weight: 600 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    opacity: 0.7;
-    margin-top: 0.75rem !important;
-}
-section[data-testid="stSidebar"] label[data-testid="stWidgetLabel"] p {
-    font-size: 0.75rem !important;
-}
-section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
-    font-size: 0.75rem !important;
-    padding: 0.3rem 0.3rem !important;
-    white-space: nowrap !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-section[data-testid="stSidebar"] hr {
-    margin: 0.6rem 0 !important;
-}
-section[data-testid="stSidebar"] p {
-    font-size: 0.72rem !important;
-    line-height: 1.4 !important;
-}
-
-/* â”€â”€ Dividers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-hr { margin: 0.75rem 0 !important; }
-
-/* â”€â”€ DataFrames / tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stDataFrame"] {
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-/* â”€â”€ Expander â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stExpander"] summary {
-    font-size: 0.85rem !important;
-    font-weight: 500 !important;
-    padding: 0.4rem 0.6rem !important;
-}
-
-/* â”€â”€ Alert / info boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stAlert"] {
-    padding: 0.5rem 0.75rem !important;
-    font-size: 0.85rem !important;
-    border-radius: 8px !important;
-}
-
-/* â”€â”€ Selectbox â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-baseweb="select"] > div {
-    font-size: 0.875rem !important;
-    min-height: 36px !important;
-}
-
-/* â”€â”€ Slider labels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stSlider"] label p {
-    font-size: 0.8rem !important;
-}
-
-/* â”€â”€ File uploader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-section[data-testid="stFileUploadDropzone"] {
-    padding: 0.6rem !important;
-    min-height: 60px !important;
-}
-section[data-testid="stFileUploadDropzone"] p {
-    font-size: 0.75rem !important;
-    margin: 0 !important;
-}
-
-/* â”€â”€ Markdown text inside tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-div[data-testid="stMarkdownContainer"] p {
-    font-size: 0.875rem !important;
-    margin-bottom: 0.4rem !important;
-}
-div[data-testid="stMarkdownContainer"] strong {
-    font-weight: 600 !important;
-}
+/* Hide Streamlit Footer & Hamburger */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# â”€â”€ Tab folder-style via component iframe JS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# st.markdown strips <script> tags; st.components.v1.html() actually runs JS.
-# We escape the iframe via window.parent to patch the main document's <head>.
+# ── Tab folder-style via component iframe JS ────────────────────────────
+# JS Injection for Tab styles (Streamlit component isolation workaround)
 import streamlit.components.v1 as components
 
 components.html("""
@@ -277,37 +213,33 @@ components.html("""
 (function() {
   const TAB_CSS = `
     div[data-baseweb="tab-list"] {
-      gap: 4px !important;
-      background: transparent !important;
-      border-bottom: 2px solid rgba(255,255,255,0.15) !important;
-      padding-bottom: 0 !important;
-      align-items: flex-end !important;
+        gap: 8px !important;
+        background: rgba(0,0,0,0.2) !important;
+        border-radius: 8px !important;
+        padding: 6px !important;
+        border-bottom: none !important;
     }
     button[data-baseweb="tab"] {
-      padding: 0.45rem 1.25rem 0.5rem 1.25rem !important;
-      font-size: 0.75rem !important;
-      font-weight: 700 !important;
-      letter-spacing: 0.07em !important;
-      text-transform: uppercase !important;
-      color: rgba(250,250,250,0.45) !important;
-      background: rgba(255,255,255,0.05) !important;
-      border: 1.5px solid rgba(255,255,255,0.12) !important;
-      border-bottom: 2px solid rgba(255,255,255,0.15) !important;
-      border-radius: 7px 7px 0 0 !important;
-      margin-bottom: -2px !important;
-      transition: background .15s, color .15s, border-color .15s !important;
+        padding: 0.6rem 1.5rem !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.05em !important;
+        text-transform: uppercase !important;
+        color: #8a94a6 !important;
+        background: transparent !important;
+        border: none !important;
+        border-radius: 6px !important;
+        transition: all .2s !important;
     }
     button[data-baseweb="tab"]:hover {
-      background: rgba(255,255,255,0.1) !important;
-      color: rgba(255,255,255,0.85) !important;
-      border-color: rgba(255,255,255,0.25) !important;
+        color: #ffffff !important;
+        background: rgba(255,255,255,0.05) !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
-      background: #262730 !important;
-      color: #ffffff !important;
-      border-color: rgba(255,255,255,0.22) !important;
-      border-bottom-color: #262730 !important;
-      box-shadow: inset 0 3px 0 0 #e05252 !important;
+        background: rgba(0, 240, 255, 0.9) !important;
+        color: #000000 !important;
+        border-bottom: none !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
     }
     div[data-baseweb="tab-highlight"],
     div[data-baseweb="tab-border"] {
@@ -317,7 +249,7 @@ components.html("""
   `;
 
   function injectStyles(doc) {
-    const id = 'combusto-tab-styles';
+    const id = 'combusto-tab-styles-cyber';
     if (doc && !doc.getElementById(id)) {
       const s = doc.createElement('style');
       s.id = id;
@@ -326,18 +258,17 @@ components.html("""
     }
   }
 
-  // Target parent document (escaping the iframe)
   try {
     injectStyles(window.parent.document);
     const obs = new window.parent.MutationObserver(() => injectStyles(window.parent.document));
     obs.observe(window.parent.document.body, { childList: true, subtree: false });
   } catch(e) {
-    // Same-origin fallback
     injectStyles(document);
   }
 })();
 </script>
 """, height=0)
+
 
 st.title("Combusto")
 st.caption("Gun Propellant Combustion Product Predictor with PAH/Soot Modeling")
