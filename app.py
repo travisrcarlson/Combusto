@@ -302,7 +302,8 @@ if not check_password():
 # Session state init
 # ---------------------------------------------------------------------------
 if "formulations" not in st.session_state:
-    st.session_state.formulations = load_presets()
+    from combusto.models import Formulation
+    st.session_state.formulations = [Formulation(name="Custom Formulation")]
 if "selected_idx" not in st.session_state:
     st.session_state.selected_idx = 0
 if "compare_idx" not in st.session_state:
@@ -505,13 +506,14 @@ with _top_col2:
 st.markdown("**Library Import:**")
 _lib_col1, _lib_col2 = st.columns([3, 1])
 with _lib_col1:
-    from combusto.presets import STANDARD_EXPLOSIVES
-    lib_names = [e.name for e in STANDARD_EXPLOSIVES]
-    selected_lib_idx = st.selectbox("Standard Explosive Library", range(len(lib_names)), format_func=lambda i: f"{STANDARD_EXPLOSIVES[i].name} — {STANDARD_EXPLOSIVES[i].description}", label_visibility="collapsed")
+    from combusto.presets import get_all_library_templates
+    lib_templates = get_all_library_templates()
+    lib_names = [e.name for e in lib_templates]
+    selected_lib_idx = st.selectbox("Standard Explosive Library", range(len(lib_names)), format_func=lambda i: f"{lib_templates[i].name} — {lib_templates[i].description}", label_visibility="collapsed")
 with _lib_col2:
     if st.button("➕ Inject into Session", use_container_width=True):
         from combusto.models import Formulation, PropellantComponent
-        src = STANDARD_EXPLOSIVES[selected_lib_idx]
+        src = lib_templates[selected_lib_idx]
         new_f = Formulation(
             name=src.name,
             components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in src.components],

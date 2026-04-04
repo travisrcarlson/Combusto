@@ -68,9 +68,17 @@ STANDARD_EXPLOSIVES = [
             PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=0.70, hf_298=74.4),
             PropellantComponent(name="TNT", formula="C7H5N3O6", mass_fraction=0.30, hf_298=-66.9)
         ]
+    ),
+    Formulation(
+        name="TATP",
+        description="Triacetone Triperoxide",
+        components=[PropellantComponent(name="TATP", formula="C9H18O6", mass_fraction=1.0, hf_298=151.4)]
     )
 ]
 
+def get_all_library_templates() -> List[Formulation]:
+    """Return all preset propellants and standard explosives as a combined library."""
+    return load_presets() + STANDARD_EXPLOSIVES
 
 def load_presets(path: Path | None = None) -> List[Formulation]:
     """Load preset formulations from JSON."""
