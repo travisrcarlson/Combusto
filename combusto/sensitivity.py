@@ -50,6 +50,9 @@ def _result_to_row(result: CombustionResult) -> Dict[str, float]:
         "PAH_carbon_frac": cd.get("PAHs", 0.0),
         "mixture_cp": result.mixture_cp,
         "enthalpy_change_kj": result.enthalpy_change_kj,
+        "force_constant_j_per_g": result.force_constant_j_per_g,
+        "gamma": result.gamma,
+        "specific_impulse_s": result.specific_impulse_s,
     }
 
 
@@ -309,3 +312,75 @@ def compare_formulations(
     df = pd.DataFrame(rows)
     cols = ["formulation"] + [c for c in df.columns if c != "formulation"]
     return df[cols]
+
+
+def sweep_2d(
+    formulation: Formulation,
+    conditions: CombustionConditions,
+    pah_config: PAHAllocationConfig,
+    species_db: Dict[str, Species],
+    param1: str,  # "equivalence_ratio", "temperature", "pressure"
+    range1: np.ndarray,
+    param2: str,  # "equivalence_ratio", "temperature", "pressure"
+    range2: np.ndarray,
+) -> pd.DataFrame:
+    """Perform a 2D parameter sweep varying two conditions simultaneously.
+
+    Returns a DataFrame with param1 and param2 as columns, along with all results.
+    """
+    rows: List[Dict[str, float]] = []
+
+    # Get base equivalence ratio to scale if needed
+    phi_base = equivalence_ratio(formulation)
+
+    for val1 in range1:
+        for val2 in range2:
+            # Set up parameters
+            temp_k = float(conditions.temperature_k if conditions.temperature_k else 2500.0)
+            press_atm = float(conditions.pressure_atm)
+            phi_val = phi_base
+            o_scale = 1.0
+
+            # Override parameters based on selection
+            if param1 == "equivalence_ratio":
+                o_scale = phi_base / float(val1) if val1 > 0 else 1.0
+                phi_val = float(val1)
+            elif param1 == "temperature":
+                temp_k = float(val1)
+            elif param1 == "pressure":
+                press_atm = float(val1)
+
+            if param2 == "equivalence_ratio":
+                o_scale = phi_base / float(val2) if val2 > 0 else 1.0
+                phi_val = float(val2)
+            elif param2 == "temperature":
+                temp_k = float(val2)
+            elif param2 == "pressure":
+                press_atm = float(val2)
+
+            # Apply modified formulation if equivalence ratio was swept
+            sweep_form = formulation
+            if param1 == "equivalence_ratio" or param2 == "equivalence_ratio":
+                sweep_form = _modify_oxygen(formulation, o_scale)
+
+            # Build sweep conditions
+            sweep_conds = copy.deepcopy(conditions)
+            sweep_conds.pressure_atm = press_atm
+
+            # Run solver
+            result = solve_equilibrium(
+                sweep_form, sweep_conds, pah_config, species_db, temp_k
+            )
+
+            # Log data
+            row = _result_to_row(result)
+            row[f"param_{param1}"] = float(val1)
+            row[f"param_{param2}"] = float(val2)
+            rows.append(row)
+
+    df = pd.DataFrame(rows)
+    # Put param columns first
+    param_cols = [f"param_{param1}", f"param_{param2}"]
+    other_cols = [c for c in df.columns if c not in param_cols]
+    return df[param_cols + other_cols]
+

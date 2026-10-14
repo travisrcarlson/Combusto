@@ -44,6 +44,7 @@ from combusto.sensitivity import (
     sweep_temperature,
     sweep_pah_models,
     compare_formulations,
+    sweep_2d,
 )
 from combusto.species_db import load_species_db
 
@@ -792,8 +793,8 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
                 st.error(str(e))
 
 st.markdown("<br>", unsafe_allow_html=True)
-tab2, tab3, tab_cal, tab_perf, tab4, tab5 = st.tabs([
-    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "VoD Estimator"
+tab2, tab3, tab_cal, tab_perf, tab4, tab_ballistics, tab_flash, tab_opt, tab5 = st.tabs([
+    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "Internal Ballistics & Erosion", "Muzzle Flash & Plume", "Optimizer & Ternary", "VoD Estimator"
 ])
 
 # ===== Tab 2: Conditions & Run =====
@@ -1088,7 +1089,7 @@ with tab3:
         # Export
         st.divider()
         st.markdown("### Export")
-        col_exp1, col_exp2, col_exp3 = st.columns(3)
+        col_exp1, col_exp2, col_exp3, col_exp4 = st.columns(4)
         with col_exp1:
             csv_data = result_to_csv(result)
             st.download_button(
@@ -1125,6 +1126,14 @@ with tab3:
                 "Download JSON", json_str,
                 file_name=f"combusto_{active_name.replace(' ', '_')}.json",
                 mime="application/json", use_container_width=True,
+            )
+        with col_exp4:
+            from combusto.export_pdf import export_result_pdf
+            pdf_bytes = export_result_pdf(result, formulation)
+            st.download_button(
+                "📄 Download PDF Report", pdf_bytes,
+                file_name=f"combusto_{active_name.replace(' ', '_')}_report.pdf",
+                mime="application/pdf", use_container_width=True,
             )
 
 # ===== Tab_Cal: Isothermal Calorimetry =====
@@ -1220,15 +1229,15 @@ with tab_perf:
 
 # ===== Tab 4: Sensitivity Analysis =====
 with tab4:
-    with st.expander("\u2139\ufe0f  How to use \u2014 Sensitivity Analysis", expanded=False):
+    with st.expander("ℹ️  How to use — Sensitivity Analysis", expanded=False):
         st.markdown("""
-        **Sweep one variable while holding others fixed to explore parametric trends.**
+        **Sweep one or two variables while holding others fixed to explore parametric trends.**
         - Requires a loaded formulation and conditions set in the **Conditions & Run** tab.
-        - **Equivalence ratio sweep**: varies \u03c6 from 0.5 \u2192 3.0 \u2014 shows CO/CO\u2082 crossover.
-        - **Temperature sweep**: varies T from 1\u202f000 \u2192 4\u202f500 K \u2014 assesses kinetic freeze points.
+        - **Equivalence ratio sweep**: varies φ from 0.5 → 3.0 — shows CO/CO₂ crossover.
+        - **Temperature sweep**: varies T from 1 000 → 4 500 K — assesses kinetic freeze points.
         - **PAH model comparison**: runs all built-in soot models and compares carbon partitioning.
         - **Multi-formulation comparison**: evaluates all loaded formulations under identical conditions.
-        - Results are plotted automatically; download raw data from the *Raw sweep data* expander.
+        - **2D Sensitivity sweep**: sweeps two variables simultaneously and renders interactive 3D surface and 2D contour maps.
         """)
     if not formulation.components:
         st.info("Define a formulation first.")
@@ -1237,8 +1246,52 @@ with tab4:
         with _sa_col:
             analysis_type = st.selectbox(
                 "Analysis type",
-                ["Equivalence ratio sweep", "Temperature sweep", "PAH model comparison", "Multi-formulation comparison"],
+                ["Equivalence ratio sweep", "Temperature sweep", "PAH model comparison", "Multi-formulation comparison", "2D Sensitivity sweep"],
             )
+
+        # 2D Sweep parameter selection
+        if analysis_type == "2D Sensitivity sweep":
+            var_opts = {
+                "Equivalence ratio (phi)": "equivalence_ratio",
+                "Temperature (K)": "temperature",
+                "Pressure (atm)": "pressure"
+            }
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                v1_label = st.selectbox("Variable 1 (X-Axis)", list(var_opts.keys()), index=0, key="sa2d_v1")
+                v1_name = var_opts[v1_label]
+                if v1_name == "equivalence_ratio":
+                    v1_min, v1_max = st.slider("X Range (phi)", 0.5, 3.0, (0.5, 2.5), step=0.1, key="sa2d_v1_rng")
+                elif v1_name == "temperature":
+                    v1_min, v1_max = st.slider("X Range (Temperature K)", 1000, 4500, (1500, 3500), step=100, key="sa2d_v1_rng")
+                else:
+                    v1_min, v1_max = st.slider("X Range (Pressure atm)", 1, 500, (10, 150), step=10, key="sa2d_v1_rng")
+            with col_v2:
+                remaining_opts = {k: v for k, v in var_opts.items() if k != v1_label}
+                v2_label = st.selectbox("Variable 2 (Y-Axis)", list(remaining_opts.keys()), index=0, key="sa2d_v2")
+                v2_name = remaining_opts[v2_label]
+                if v2_name == "equivalence_ratio":
+                    v2_min, v2_max = st.slider("Y Range (phi)", 0.5, 3.0, (0.8, 2.8), step=0.1, key="sa2d_v2_rng")
+                elif v2_name == "temperature":
+                    v2_min, v2_max = st.slider("Y Range (Temperature K)", 1000, 4500, (2000, 4000), step=100, key="sa2d_v2_rng")
+                else:
+                    v2_min, v2_max = st.slider("Y Range (Pressure atm)", 1, 500, (20, 200), step=10, key="sa2d_v2_rng")
+            
+            metric_opts = {
+                "Adiabatic Flame Temperature (K)": "adiabatic_flame_temp_k",
+                "PAH Carbon Fraction": "PAH_carbon_frac",
+                "CO Carbon Fraction": "CO_carbon_frac",
+                "CO2 Carbon Fraction": "CO2_carbon_frac",
+                "CO Mole Fraction": "CO_mole_frac",
+                "CO2 Mole Fraction": "CO2_mole_frac",
+                "H2 Mole Fraction": "H2_mole_frac",
+                "H2O Mole Fraction": "H2O_mole_frac",
+                "Force Constant (J/g)": "force_constant_j_per_g",
+                "Gamma (Cp/Cv)": "gamma",
+                "Specific Impulse (s)": "specific_impulse_s",
+            }
+            selected_metric_label = st.selectbox("Select Metric to Plot", list(metric_opts.keys()), index=0, key="sa2d_metric")
+            selected_metric = metric_opts[selected_metric_label]
 
         run_sensitivity = st.button("\u25b6  Run Sensitivity Analysis", type="primary")
 
@@ -1253,7 +1306,7 @@ with tab4:
                         )
                         st.session_state["sensitivity_df"] = df
                         st.session_state["sensitivity_type"] = "phi"
-
+ 
                     elif analysis_type == "Temperature sweep":
                         t_range = np.linspace(1000, 4500, 25)
                         df = sweep_temperature(
@@ -1262,7 +1315,7 @@ with tab4:
                         )
                         st.session_state["sensitivity_df"] = df
                         st.session_state["sensitivity_type"] = "temp"
-
+ 
                     elif analysis_type == "PAH model comparison":
                         df = sweep_pah_models(
                             formulation, conditions,
@@ -1270,7 +1323,7 @@ with tab4:
                         )
                         st.session_state["sensitivity_df"] = df
                         st.session_state["sensitivity_type"] = "pah"
-
+ 
                     elif analysis_type == "Multi-formulation comparison":
                         df = compare_formulations(
                             st.session_state.formulations, conditions, pah_config,
@@ -1279,17 +1332,31 @@ with tab4:
                         st.session_state["sensitivity_df"] = df
                         st.session_state["sensitivity_type"] = "multi"
 
+                    elif analysis_type == "2D Sensitivity sweep":
+                        r1 = np.linspace(v1_min, v1_max, 10)
+                        r2 = np.linspace(v2_min, v2_max, 10)
+                        df = sweep_2d(
+                            formulation, conditions, pah_config,
+                            st.session_state.species_db, v1_name, r1, v2_name, r2
+                        )
+                        st.session_state["sensitivity_df"] = df
+                        st.session_state["sensitivity_type"] = "sweep2d"
+                        st.session_state["sa2d_v1_name"] = v1_name
+                        st.session_state["sa2d_v2_name"] = v2_name
+                        st.session_state["sa2d_metric"] = selected_metric
+                        st.session_state["sa2d_metric_label"] = selected_metric_label
+ 
                     st.success("Analysis complete!")
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
                     import traceback
                     st.code(traceback.format_exc())
-
+ 
         # Display results
         if "sensitivity_df" in st.session_state:
             df = st.session_state["sensitivity_df"]
             stype = st.session_state["sensitivity_type"]
-
+ 
             if stype == "phi":
                 st.markdown("### Equivalence Ratio Sweep")
                 col_g1, col_g2 = st.columns(2)
@@ -1301,7 +1368,7 @@ with tab4:
                     fig.add_trace(go.Scatter(x=df["phi_target"], y=df["H2_mole_frac"], name="H2", mode="lines+markers"))
                     fig.update_layout(title="Major Products vs phi", xaxis_title="phi", yaxis_title="Mole Fraction", height=400)
                     st.plotly_chart(fig, use_container_width=True)
-
+ 
                 with col_g2:
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=df["phi_target"], y=df["PAH_carbon_frac"], name="PAH C fraction", fill="tozeroy"))
@@ -1309,7 +1376,7 @@ with tab4:
                     fig2.add_trace(go.Scatter(x=df["phi_target"], y=df["CO2_carbon_frac"], name="CO2 C fraction"))
                     fig2.update_layout(title="Carbon Distribution vs phi", xaxis_title="phi", yaxis_title="Fraction of C", height=400)
                     st.plotly_chart(fig2, use_container_width=True)
-
+ 
             elif stype == "temp":
                 st.markdown("### Temperature Sweep")
                 col_g1, col_g2 = st.columns(2)
@@ -1321,13 +1388,13 @@ with tab4:
                     fig.add_trace(go.Scatter(x=df["sweep_temperature_k"], y=df["H2_mole_frac"], name="H2", mode="lines+markers"))
                     fig.update_layout(title="Products vs Temperature", xaxis_title="T (K)", yaxis_title="Mole Fraction", height=400)
                     st.plotly_chart(fig, use_container_width=True)
-
+ 
                 with col_g2:
                     fig2 = go.Figure()
                     fig2.add_trace(go.Scatter(x=df["sweep_temperature_k"], y=df["PAH_carbon_frac"], name="PAH C fraction", fill="tozeroy"))
                     fig2.update_layout(title="PAH Carbon vs Temperature", xaxis_title="T (K)", yaxis_title="PAH C fraction", height=400)
                     st.plotly_chart(fig2, use_container_width=True)
-
+ 
             elif stype == "pah":
                 st.markdown("### PAH Model Comparison")
                 fig = px.bar(
@@ -1338,7 +1405,7 @@ with tab4:
                     title="Carbon Distribution by PAH Model",
                 )
                 st.plotly_chart(fig, use_container_width=True)
-
+ 
             elif stype == "multi":
                 st.markdown("### Multi-Formulation Comparison")
                 fig = px.bar(
@@ -1350,6 +1417,55 @@ with tab4:
                 fig.update_layout(xaxis_tickangle=-45, height=450)
                 st.plotly_chart(fig, use_container_width=True)
 
+            elif stype == "sweep2d":
+                v1_n = st.session_state.get("sa2d_v1_name", "param1")
+                v2_n = st.session_state.get("sa2d_v2_name", "param2")
+                met = st.session_state.get("sa2d_metric", "adiabatic_flame_temp_k")
+                met_lbl = st.session_state.get("sa2d_metric_label", "Value")
+                
+                st.markdown(f"### 2D Sensitivity Sweep: {met_lbl}")
+                
+                x_vals = sorted(df[f"param_{v1_n}"].unique())
+                y_vals = sorted(df[f"param_{v2_n}"].unique())
+                
+                z_grid = np.zeros((len(y_vals), len(x_vals)))
+                for idx_y, y_val in enumerate(y_vals):
+                    for idx_x, x_val in enumerate(x_vals):
+                        match = df[(df[f"param_{v1_n}"] == x_val) & (df[f"param_{v2_n}"] == y_val)]
+                        if not match.empty:
+                            z_grid[idx_y, idx_x] = match.iloc[0][met]
+                            
+                col_g1, col_g2 = st.columns(2)
+                with col_g1:
+                    fig = go.Figure(data=[go.Surface(z=z_grid, x=x_vals, y=y_vals, colorscale="Viridis")])
+                    fig.update_layout(
+                        title=f"3D Surface: {met_lbl}",
+                        scene=dict(
+                            xaxis_title=v1_n,
+                            yaxis_title=v2_n,
+                            zaxis_title=met_lbl
+                        ),
+                        height=500
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                with col_g2:
+                    fig2 = go.Figure(data=go.Contour(
+                        z=z_grid,
+                        x=x_vals,
+                        y=y_vals,
+                        colorscale="Viridis",
+                        line_width=0.5,
+                        contours=dict(showlabels=True)
+                    ))
+                    fig2.update_layout(
+                        title=f"2D Contour: {met_lbl}",
+                        xaxis_title=v1_n,
+                        yaxis_title=v2_n,
+                        height=500
+                    )
+                    st.plotly_chart(fig2, use_container_width=True)
+
             # Show raw data
             with st.expander("Raw sweep data"):
                 st.dataframe(df, use_container_width=True, hide_index=True)
@@ -1359,6 +1475,463 @@ with tab4:
                     file_name="combusto_sensitivity.csv",
                     mime="text/csv",
                 )
+
+# ===== Tab_Ballistics: Internal Ballistics, Multi-Perf Grain Visualizer & Barrel Erosion =====
+with tab_ballistics:
+    with st.expander("ℹ️  How to use — Internal Ballistics, Grain Burnback & Barrel Erosion", expanded=False):
+        st.markdown(r"""
+        **Simulate transient interior ballistics, progressive multi-perforated grain burnback, and bore wall thermal erosion.**
+        - Uses **Noble-Abel Equation of State**, **Saint-Robert's burn rate law** ($r = a P^n$), and **grain geometry form functions** including progressive **7-perforated** and **19-perforated** rosette grains with post-web-breakup sliver phase.
+        - **2D Grain Cross-Section Visualizer**: Inspect concentric burning surfaces and form function $z(u)$ across normalized burn depth $u = 2 x_b / D_0$.
+        - **Barrel Thermal Erosion & Wear Estimator**: Computes transient bore wall surface temperature $T_{wall}(t)$, convective heat flux, chemical gas wash ($\text{CO}/\text{CO}_2$ and $\text{H}_2/\text{H}_2\text{O}$), and estimated barrel wear life in Equivalent Full Charges (EFC).
+        """)
+    st.subheader("Transient Gun Interior Ballistics & Barrel Erosion Simulator")
+
+    if not formulation.components:
+        st.info("Define a formulation first.")
+    else:
+        from combusto.ballistics import (
+            simulate_ballistics,
+            generate_grain_cross_section,
+            grain_form_function,
+            estimate_barrel_erosion,
+        )
+
+        default_F = 1050.0
+        default_gamma = 1.24
+        if "result" in st.session_state and st.session_state["result"] is not None:
+            res_cur = st.session_state["result"]
+            if res_cur.force_constant_j_per_g > 0:
+                default_F = float(res_cur.force_constant_j_per_g)
+            if res_cur.gamma > 1.0:
+                default_gamma = float(res_cur.gamma)
+
+        col_b1, col_b2, col_b3 = st.columns(3)
+        with col_b1:
+            st.markdown("**Propellant & Grain Parameters**")
+            ib_F = st.number_input("Force Constant F (J/g)", 100.0, 2500.0, default_F, 10.0, key="ib_F")
+            ib_gamma = st.number_input("Ratio of Specific Heats γ", 1.05, 1.67, default_gamma, 0.01, key="ib_gamma")
+            ib_charge_g = st.number_input("Charge Mass (g)", 0.5, 50000.0, 50.0, 1.0, key="ib_charge")
+            ib_rho_p = st.number_input("Propellant Solid Density (g/cm³)", 0.8, 2.2, 1.60, 0.05, key="ib_rhop")
+            ib_covol = st.number_input("Gas Covolume η (cm³/g)", 0.5, 2.0, 1.0, 0.05, key="ib_covol")
+
+        with col_b2:
+            st.markdown("**Burn Rate & Geometry**")
+            geom_labels = {
+                "7_perf": "7-Perforated Cylinder (Progressive + Slivers)",
+                "19_perf": "19-Perforated Rosette (Highly Progressive + Slivers)",
+                "single_perf": "Single-Perforated Tube (Neutral)",
+                "cord": "Cylindrical Cord (Regressive)",
+                "spherical": "Spherical Ball (Regressive)",
+            }
+            ib_geom = st.selectbox("Grain Geometry", list(geom_labels.keys()), format_func=lambda g: geom_labels[g], key="ib_geom")
+            ib_web_mm = st.number_input("Web Thickness D₀ (mm)", 0.1, 20.0, 1.2, 0.1, key="ib_web")
+            ib_a = st.number_input("Burn Rate Coeff a (mm/s/MPaⁿ)", 0.05, 20.0, 1.2, 0.1, key="ib_a")
+            ib_n = st.number_input("Pressure Exponent n", 0.3, 1.2, 0.85, 0.02, key="ib_n")
+
+        with col_b3:
+            st.markdown("**Chamber & Barrel Hardware**")
+            ib_vc_cm3 = st.number_input("Chamber Volume Vc (cm³)", 1.0, 100000.0, 65.0, 5.0, key="ib_vc")
+            ib_bore_mm = st.number_input("Bore Diameter (mm)", 4.0, 200.0, 30.0, 1.0, key="ib_bore")
+            ib_len_m = st.number_input("Barrel Travel Length (m)", 0.1, 10.0, 1.5, 0.1, key="ib_len")
+            ib_mproj_g = st.number_input("Projectile Mass (g)", 1.0, 100000.0, 300.0, 10.0, key="ib_mproj")
+            ib_pstart_mpa = st.number_input("Shot-Start Pressure (MPa)", 1.0, 150.0, 30.0, 5.0, key="ib_pstart")
+
+        # 2D Grain Cross-Section & Form Function Visualizer
+        with st.expander("🔬 2D Grain Cross-Section Burnback & Form Function Visualizer", expanded=True):
+            u_max_vis = 1.18 if ib_geom == "7_perf" else (1.15 if ib_geom == "19_perf" else 1.0)
+            u_vis = st.slider("Inspect Normalized Web Burn Depth u = 2·x_b / D₀", 0.0, float(u_max_vis), 0.35, 0.02, key="ib_u_vis")
+            cs = generate_grain_cross_section(ib_geom, ib_web_mm, u_vis)
+            z_cur, dz_du_cur = grain_form_function(u_vis, ib_geom)
+
+            vis_c1, vis_c2 = st.columns(2)
+            with vis_c1:
+                theta = np.linspace(0, 2 * np.pi, 120)
+                fig_cs = go.Figure()
+                # Initial outer boundary
+                r_oi = cs["outer_r_init"]
+                fig_cs.add_trace(go.Scatter(
+                    x=r_oi * np.cos(theta), y=r_oi * np.sin(theta),
+                    mode="lines", name="Initial Outer Boundary",
+                    line=dict(color="#64748b", dash="dot", width=1.5),
+                ))
+                # Current outer boundary
+                r_oc = cs["outer_r_cur"]
+                fig_cs.add_trace(go.Scatter(
+                    x=r_oc * np.cos(theta), y=r_oc * np.sin(theta),
+                    mode="lines", name="Active Outer Burn Front",
+                    line=dict(color="#00f0ff", width=2.5),
+                    fill="toself", fillcolor="rgba(0, 240, 255, 0.10)",
+                ))
+                # Perforations
+                for idx_p, (cx, cy) in enumerate(cs["perf_centers"]):
+                    r_pi = cs["perf_r_init"]
+                    r_pc = cs["perf_r_cur"]
+                    fig_cs.add_trace(go.Scatter(
+                        x=cx + r_pi * np.cos(theta), y=cy + r_pi * np.sin(theta),
+                        mode="lines", name="Initial Perf" if idx_p == 0 else None,
+                        showlegend=(idx_p == 0),
+                        line=dict(color="#64748b", dash="dot", width=1.0),
+                    ))
+                    fig_cs.add_trace(go.Scatter(
+                        x=cx + r_pc * np.cos(theta), y=cy + r_pc * np.sin(theta),
+                        mode="lines", name="Active Perf Burn Front" if idx_p == 0 else None,
+                        showlegend=(idx_p == 0),
+                        line=dict(color="#ffaa00", width=2.0),
+                        fill="toself", fillcolor="rgba(20, 23, 36, 0.85)",
+                    ))
+                lim = r_oi * 1.15
+                fig_cs.update_layout(
+                    title=f"Cross-Section at u={u_vis:.2f} (Mass Burned z={z_cur*100:.1f}%)",
+                    xaxis=dict(title="mm", range=[-lim, lim], scaleanchor="y", scaleratio=1),
+                    yaxis=dict(title="mm", range=[-lim, lim]),
+                    height=380,
+                )
+                st.plotly_chart(fig_cs, use_container_width=True)
+
+            with vis_c2:
+                u_arr = np.linspace(0.0, u_max_vis, 100)
+                z_vals = [grain_form_function(float(uu), ib_geom)[0] * 100.0 for uu in u_arr]
+                dz_vals = [grain_form_function(float(uu), ib_geom)[1] for uu in u_arr]
+                fig_ff = go.Figure()
+                fig_ff.add_trace(go.Scatter(x=u_arr, y=z_vals, name="Mass Burned z (%)", line=dict(color="#00ff88", width=2.5)))
+                fig_ff.add_trace(go.Scatter(x=u_arr, y=dz_vals, name="Relative Surface Area dz/du", yaxis="y2", line=dict(color="#ffaa00", dash="dash", width=2.0)))
+                fig_ff.add_vline(x=u_vis, line_dash="dot", line_color="#00f0ff")
+                fig_ff.update_layout(
+                    title="Grain Form Function z(u) & Relative Burning Area dz/du",
+                    xaxis_title="Normalized Web Burn Depth u = 2·x_b / D₀",
+                    yaxis=dict(title="Mass Burned z (%)", range=[0, 105]),
+                    yaxis2=dict(title="Relative Burn Surface Area dz/du", overlaying="y", side="right"),
+                    height=380,
+                )
+                st.plotly_chart(fig_ff, use_container_width=True)
+
+        if st.button("▶ Run Interior Ballistics & Erosion Simulation", type="primary", key="btn_run_ib"):
+            with st.spinner("Integrating interior ballistics ODEs and bore wall heat transfer..."):
+                ib_out = simulate_ballistics(
+                    force_constant_j_per_g=ib_F,
+                    gamma=ib_gamma,
+                    charge_mass_g=ib_charge_g,
+                    propellant_density_g_per_cm3=ib_rho_p,
+                    covolume_cm3_per_g=ib_covol,
+                    burn_rate_a=ib_a,
+                    burn_rate_n=ib_n,
+                    web_thickness_mm=ib_web_mm,
+                    grain_geometry=ib_geom,
+                    chamber_volume_cm3=ib_vc_cm3,
+                    bore_diameter_mm=ib_bore_mm,
+                    barrel_length_m=ib_len_m,
+                    projectile_mass_g=ib_mproj_g,
+                    start_pressure_mpa=ib_pstart_mpa,
+                )
+                ero_out = estimate_barrel_erosion(
+                    ib_out=ib_out,
+                    result=st.session_state.get("result"),
+                    bore_diameter_mm=ib_bore_mm,
+                    charge_mass_g=ib_charge_g,
+                )
+                st.session_state["ib_out"] = ib_out
+                st.session_state["ero_out"] = ero_out
+
+        if "ib_out" in st.session_state:
+            ib_out = st.session_state["ib_out"]
+            m_ib1, m_ib2, m_ib3, m_ib4 = st.columns(4)
+            m_ib1.metric("Peak Chamber Pressure", f"{ib_out['max_pressure_mpa']:.1f} MPa")
+            m_ib2.metric("Muzzle Velocity", f"{ib_out['muzzle_velocity_m_s']:.1f} m/s")
+            ke_kj = 0.5 * (ib_mproj_g / 1000.0) * (ib_out['muzzle_velocity_m_s'] ** 2) / 1000.0
+            m_ib3.metric("Muzzle Kinetic Energy", f"{ke_kj:.1f} kJ")
+            m_ib4.metric("Action Time", f"{ib_out['burn_time_ms']:.2f} ms")
+
+            ib_g1, ib_g2 = st.columns(2)
+            with ib_g1:
+                fig_ib1 = go.Figure()
+                fig_ib1.add_trace(go.Scatter(x=ib_out["time"] * 1000.0, y=ib_out["pressure_mpa"], name="Pressure (MPa)", line=dict(color="#00f0ff", width=2.5)))
+                fig_ib1.add_trace(go.Scatter(x=ib_out["time"] * 1000.0, y=ib_out["fraction_burned"] * 100.0, name="Burned %", yaxis="y2", line=dict(color="#ffaa00", dash="dot", width=2)))
+                fig_ib1.update_layout(
+                    title="Chamber Pressure & Burn Fraction vs Time",
+                    xaxis_title="Time (ms)",
+                    yaxis=dict(title="Pressure (MPa)"),
+                    yaxis2=dict(title="Propellant Burned (%)", overlaying="y", side="right", range=[0, 105]),
+                    height=400,
+                )
+                st.plotly_chart(fig_ib1, use_container_width=True)
+            with ib_g2:
+                fig_ib2 = go.Figure()
+                fig_ib2.add_trace(go.Scatter(x=ib_out["travel_m"], y=ib_out["velocity_m_s"], name="Velocity (m/s)", line=dict(color="#00ff88", width=2.5)))
+                fig_ib2.add_trace(go.Scatter(x=ib_out["travel_m"], y=ib_out["pressure_mpa"], name="Pressure (MPa)", yaxis="y2", line=dict(color="#00f0ff", dash="dash", width=2)))
+                fig_ib2.update_layout(
+                    title="Projectile Velocity & Pressure vs Barrel Travel",
+                    xaxis_title="Projectile Travel (m)",
+                    yaxis=dict(title="Velocity (m/s)"),
+                    yaxis2=dict(title="Pressure (MPa)", overlaying="y", side="right"),
+                    height=400,
+                )
+                st.plotly_chart(fig_ib2, use_container_width=True)
+
+            if "ero_out" in st.session_state:
+                ero_out = st.session_state["ero_out"]
+                st.divider()
+                st.markdown("### 🔥 Barrel Thermal Erosion & Wear Life Assessment")
+                st.info(f"**Erosion Regime:** {ero_out['erosion_regime']}")
+                e1, e2, e3, e4 = st.columns(4)
+                e1.metric("Peak Bore Wall Temp", f"{ero_out['peak_wall_temp_k']:.0f} K ({ero_out['peak_wall_temp_c']:.0f} °C)")
+                e2.metric("Peak Wall Heat Flux", f"{ero_out['peak_heat_flux_mw_m2']:.1f} MW/m²")
+                e3.metric("Throat Wear Rate", f"{ero_out['wear_um_per_shot']:.2f} µm/shot")
+                e4.metric("Est. Barrel Life (EFC)", f"{ero_out['estimated_barrel_life_rounds']:,} rounds")
+
+                fig_ero = go.Figure()
+                fig_ero.add_trace(go.Scatter(
+                    x=ib_out["time"] * 1000.0, y=ero_out["wall_temp_k"],
+                    name="Bore Wall Surface Temp (K)", line=dict(color="#ff5555", width=2.5),
+                ))
+                fig_ero.add_hline(y=1000.0, line_dash="dash", line_color="#ffaa00", annotation_text="Steel Austenitization Onset (~1000 K)")
+                fig_ero.add_hline(y=1720.0, line_dash="dot", line_color="#ff2222", annotation_text="Gun Steel Melt Threshold (~1720 K)")
+                fig_ero.update_layout(
+                    title="Transient Bore Wall Surface Temperature at Origin of Rifling",
+                    xaxis_title="Time (ms)",
+                    yaxis_title="Wall Temperature (K)",
+                    height=380,
+                )
+                st.plotly_chart(fig_ero, use_container_width=True)
+
+# ===== Tab_Flash: Muzzle Flash & Plume Afterburning Predictor =====
+with tab_flash:
+    with st.expander("ℹ️  How to use — Muzzle Flash & Plume Predictor", expanded=False):
+        st.markdown("""
+        **Predict primary, intermediate (Mach disk), and secondary muzzle flash.**
+        - Evaluates adiabatic gas expansion at the muzzle, normal-shock temperature recovery behind the Mach disk, and turbulent mixing of unburned $\\text{CO}, \\text{H}_2, \\text{CH}_4$ with ambient $\\text{O}_2$.
+        - Models chemical radical scavenging from alkali flash-suppressant salts ($\\text{K}_2\\text{SO}_4, \\text{KNO}_3$), which elevate the $\\text{H}_2/\\text{CO}$ auto-ignition threshold in the plume shear layer.
+        """)
+    st.subheader("Muzzle Flash & Afterburning Plume Predictor")
+
+    if not formulation.components:
+        st.info("Define a formulation first.")
+    else:
+        from combusto.muzzle_flash import analyze_muzzle_flash
+
+        mf_c1, mf_c2, mf_c3 = st.columns(3)
+        with mf_c1:
+            mf_exp_ratio = st.slider("Barrel Volumetric Expansion Ratio (V_barrel / V_c)", 2.0, 35.0, 12.0, 0.5, key="mf_expr")
+        with mf_c2:
+            mf_mach = st.slider("Muzzle Exhaust Jet Mach Number", 1.2, 4.0, 2.4, 0.1, key="mf_mach")
+        with mf_c3:
+            mf_supp = st.slider("Alkali Flash Suppressant Salt (K₂SO₄ / KNO₃ wt%)", 0.0, 5.0, 0.5, 0.1, key="mf_supp")
+
+        if st.button("▶ Run Muzzle Flash & Plume Analysis", type="primary", key="btn_run_mf"):
+            with st.spinner("Evaluating muzzle exhaust expansion and plume afterburning..."):
+                res_for_mf = st.session_state.get("result")
+                if res_for_mf is None:
+                    res_for_mf = solve_equilibrium(
+                        formulation, conditions, pah_config, st.session_state.species_db, eq_temp
+                    )
+                    st.session_state["result"] = res_for_mf
+                mf_out = analyze_muzzle_flash(
+                    result=res_for_mf,
+                    formulation=formulation,
+                    expansion_ratio=mf_exp_ratio,
+                    muzzle_mach=mf_mach,
+                    suppressant_wt_pct=mf_supp,
+                )
+                st.session_state["mf_out"] = mf_out
+
+        if "mf_out" in st.session_state:
+            mf_out = st.session_state["mf_out"]
+            status_str = mf_out["flash_status"]
+            if status_str.startswith("HIGH"):
+                st.error(f"**Flash Prediction:** {status_str}")
+            elif status_str.startswith("MODERATE"):
+                st.warning(f"**Flash Prediction:** {status_str}")
+            else:
+                st.success(f"**Flash Prediction:** {status_str}")
+
+            f1, f2, f3, f4 = st.columns(4)
+            f1.metric("Muzzle Exit Temp", f"{mf_out['muzzle_exit_temp_k']:.0f} K")
+            f2.metric("Mach Disk Recovery Temp", f"{mf_out['mach_disk_temp_k']:.0f} K")
+            f3.metric("Radical Ignition Threshold", f"{mf_out['ignition_threshold_k']:.0f} K")
+            f4.metric("Peak Plume Temp", f"{mf_out['peak_plume_temp_k']:.0f} K")
+
+            f5, f6, f7 = st.columns(3)
+            f5.metric("Combustible Exhaust Gas (CO+H₂+CH₄)", f"{mf_out['combustible_mole_pct']:.1f} mol%")
+            f6.metric("Afterburn Heat Potential", f"{mf_out['afterburn_energy_j_per_g']:.0f} J/g")
+            f7.metric("Soot Incandescence Index", f"{mf_out['incandescence_index']:.1f} / 100")
+
+            plume_df = mf_out["plume_df"]
+            fig_mf = go.Figure()
+            fig_mf.add_trace(go.Scatter(
+                x=plume_df["air_to_exhaust_ratio"], y=plume_df["potential_afterburn_temp_k"],
+                name="Potential Fully-Ignited Plume Temp (K)",
+                line=dict(color="#ffaa00", dash="dot", width=2),
+            ))
+            fig_mf.add_trace(go.Scatter(
+                x=plume_df["air_to_exhaust_ratio"], y=plume_df["actual_plume_temp_k"],
+                name="Predicted Plume Temperature (K)",
+                line=dict(color="#ff4444" if mf_out["ignited"] else "#00f0ff", width=3),
+            ))
+            fig_mf.add_trace(go.Scatter(
+                x=plume_df["air_to_exhaust_ratio"], y=plume_df["unreacted_mix_temp_k"],
+                name="Unreacted Air-Exhaust Mixing Temp (K)",
+                line=dict(color="#8899aa", dash="dash", width=2),
+            ))
+            fig_mf.add_hline(
+                y=mf_out["ignition_threshold_k"],
+                line_dash="dashdot", line_color="#00ff88",
+                annotation_text=f"Auto-Ignition Threshold ({mf_out['ignition_threshold_k']:.0f} K)",
+            )
+            fig_mf.update_layout(
+                title="Muzzle Plume Temperature Envelope vs Entrained Air-to-Exhaust Mass Ratio",
+                xaxis_title="Entrained Air / Exhaust Mass Ratio (α = m_air / m_exhaust)",
+                yaxis_title="Temperature (K)",
+                height=430,
+            )
+            st.plotly_chart(fig_mf, use_container_width=True)
+
+# ===== Tab_Opt: Multi-Objective Optimizer & Ternary Composition Diagrams =====
+with tab_opt:
+    with st.expander("ℹ️  How to use — Formulation Optimizer & Ternary Maps", expanded=False):
+        st.markdown("""
+        **Inverse-design propellant formulations and explore 3-component composition spaces.**
+        - **Multi-Objective Optimizer**: Uses constrained SLSQP optimization to adjust ingredient mass fractions to maximize Force Constant ($F$) or Specific Impulse ($I_{sp}$) while obeying upper bounds on Adiabatic Flame Temperature ($T_{ad}$) and Soot/PAH yield.
+        - **Ternary Composition Diagram**: Evaluates the complete 3-component simplex ($w_A + w_B + w_C = 1$) and plots interactive ternary contour/scatter maps.
+        """)
+    st.subheader("Multi-Objective Formulation Optimizer (Inverse Design)")
+
+    if len(formulation.components) < 2:
+        st.info("Add at least 2 components to the active formulation to run the optimizer.")
+    else:
+        from combusto.optimizer import optimize_formulation, compute_ternary_grid
+
+        opt_c1, opt_c2, opt_c3 = st.columns(3)
+        with opt_c1:
+            opt_goal_map = {
+                "force_constant": "Maximize Force Constant F (J/g)",
+                "specific_impulse": "Maximize Specific Impulse Isp (s)",
+                "min_flame_temp": "Minimize Flame Temperature T_ad (K)",
+                "min_soot": "Minimize Soot / PAH Carbon Yield",
+            }
+            opt_goal = st.selectbox("Optimization Objective", list(opt_goal_map.keys()), format_func=lambda k: opt_goal_map[k], key="opt_goal")
+        with opt_c2:
+            opt_max_t = st.slider("Max Allowed Flame Temp T_ad (K)", 1800, 4200, 3000, 50, key="opt_max_t")
+        with opt_c3:
+            opt_max_pah_pct = st.slider("Max Allowed PAH/Soot Carbon (%)", 0.5, 25.0, 5.0, 0.5, key="opt_max_pah")
+
+        if st.button("▶ Run Constrained Formulation Optimizer", type="primary", key="btn_run_opt"):
+            with st.spinner("Optimizing ingredient mass fractions via SLSQP..."):
+                opt_res = optimize_formulation(
+                    base_formulation=formulation,
+                    conditions=conditions,
+                    pah_config=pah_config,
+                    species_db=st.session_state.species_db,
+                    objective_metric=opt_goal,
+                    max_temp_k=float(opt_max_t),
+                    max_pah_frac=float(opt_max_pah_pct) / 100.0,
+                    equilibrium_temp_k=eq_temp,
+                )
+                st.session_state["opt_res"] = opt_res
+
+        if "opt_res" in st.session_state:
+            opt_res = st.session_state["opt_res"]
+            b_res = opt_res["baseline_result"]
+            o_res = opt_res["optimized_result"]
+
+            st.success("Optimization complete!")
+            oc1, oc2, oc3, oc4 = st.columns(4)
+            oc1.metric("Force Constant F", f"{o_res.force_constant_j_per_g:.1f} J/g", delta=f"{o_res.force_constant_j_per_g - b_res.force_constant_j_per_g:+.1f} J/g")
+            oc2.metric("Adiabatic Flame Temp", f"{o_res.adiabatic_flame_temp_k:.0f} K", delta=f"{o_res.adiabatic_flame_temp_k - b_res.adiabatic_flame_temp_k:+.0f} K", delta_color="inverse")
+            oc3.metric("Specific Impulse Isp", f"{o_res.specific_impulse_s:.1f} s", delta=f"{o_res.specific_impulse_s - b_res.specific_impulse_s:+.1f} s")
+            b_pah = b_res.carbon_distribution.get("PAHs", 0.0) * 100.0
+            o_pah = o_res.carbon_distribution.get("PAHs", 0.0) * 100.0
+            oc4.metric("PAH / Soot Carbon", f"{o_pah:.2f}%", delta=f"{o_pah - b_pah:+.2f}%", delta_color="inverse")
+
+            st.dataframe(opt_res["comparison_df"], use_container_width=True, hide_index=True)
+
+            if st.button("✨ Apply Optimized Mass Fractions to Active Formulation", key="btn_apply_opt"):
+                st.session_state.formulations[st.session_state.selected_idx] = opt_res["optimized_formulation"]
+                st.session_state["result"] = o_res
+                st.rerun()
+
+    st.divider()
+    st.subheader("🔺 3-Component Ternary Phase Diagram")
+    if len(formulation.components) < 3:
+        st.info("Add at least 3 components to the active formulation to generate a 3-component Ternary Phase Diagram.")
+    else:
+        from combusto.optimizer import compute_ternary_grid
+
+        comp_names = [f"{i+1}. {c.name} ({c.formula})" for i, c in enumerate(formulation.components)]
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        with tc1:
+            idx_a = st.selectbox("Apex A", range(len(comp_names)), index=0, format_func=lambda i: comp_names[i], key="tern_a")
+        with tc2:
+            idx_b = st.selectbox("Apex B", range(len(comp_names)), index=min(1, len(comp_names)-1), format_func=lambda i: comp_names[i], key="tern_b")
+        with tc3:
+            idx_c = st.selectbox("Apex C", range(len(comp_names)), index=min(2, len(comp_names)-1), format_func=lambda i: comp_names[i], key="tern_c")
+        with tc4:
+            tern_metric_map = {
+                "T_ad_K": "Adiabatic Flame Temp (K)",
+                "force_J_per_g": "Force Constant F (J/g)",
+                "Isp_s": "Specific Impulse Isp (s)",
+                "PAH_carbon_frac": "PAH / Soot Carbon Fraction",
+                "OB_pct": "Oxygen Balance (%)",
+            }
+            tern_metric = st.selectbox("Ternary Color Metric", list(tern_metric_map.keys()), format_func=lambda k: tern_metric_map[k], key="tern_met")
+
+        if st.button("▶ Compute Ternary Simplex Map", type="primary", key="btn_run_ternary"):
+            if len({idx_a, idx_b, idx_c}) < 3:
+                st.error("Please select 3 distinct components for Apex A, B, and C.")
+            else:
+                with st.spinner("Solving equilibrium across 3-component simplex grid..."):
+                    t_df = compute_ternary_grid(
+                        formulation.components[idx_a],
+                        formulation.components[idx_b],
+                        formulation.components[idx_c],
+                        conditions,
+                        pah_config,
+                        st.session_state.species_db,
+                        n_steps=8,
+                        equilibrium_temp_k=eq_temp,
+                    )
+                    st.session_state["ternary_df"] = t_df
+                    st.session_state["ternary_labels"] = (
+                        formulation.components[idx_a].name,
+                        formulation.components[idx_b].name,
+                        formulation.components[idx_c].name,
+                    )
+
+        if "ternary_df" in st.session_state:
+            t_df = st.session_state["ternary_df"]
+            lbl_a, lbl_b, lbl_c = st.session_state.get("ternary_labels", ("A", "B", "C"))
+            met_label = tern_metric_map[tern_metric]
+
+            fig_tern = go.Figure(go.Scatterternary({
+                "mode": "markers",
+                "a": t_df["w_A"] * 100.0,
+                "b": t_df["w_B"] * 100.0,
+                "c": t_df["w_C"] * 100.0,
+                "marker": {
+                    "symbol": "circle",
+                    "size": 16,
+                    "color": t_df[tern_metric],
+                    "colorscale": "Turbo",
+                    "showscale": True,
+                    "colorbar": {"title": met_label},
+                    "line": {"width": 1, "color": "#141724"},
+                },
+                "text": [
+                    f"{lbl_a}: {r.w_A*100:.0f}%<br>{lbl_b}: {r.w_B*100:.0f}%<br>{lbl_c}: {r.w_C*100:.0f}%<br>{met_label}: {getattr(r, tern_metric):.2f}"
+                    for r in t_df.itertuples()
+                ],
+                "hoverinfo": "text",
+            }))
+            fig_tern.update_layout(
+                title=f"Ternary Composition Map — {met_label}",
+                ternary={
+                    "sum": 100,
+                    "aaxis": {"title": lbl_a, "min": 0},
+                    "baxis": {"title": lbl_b, "min": 0},
+                    "caxis": {"title": lbl_c, "min": 0},
+                },
+                height=560,
+            )
+            st.plotly_chart(fig_tern, use_container_width=True)
 
 # ===== Tab 5: VoD Estimator =====
 with tab5:
