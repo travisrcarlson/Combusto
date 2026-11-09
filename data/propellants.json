@@ -1,56 +1,91 @@
 {
-  "_comment": "Preset propellant formulations. mass_fraction sums to 1.0. hf_298 in kJ/mol.",
+  "_comment": "Standardized military cannon, small-arms, LOVA, and aerospace composite propellant formulations grounded in US Army BRL ARBRL-TR-02411 (BLAKE / IBHVG2), MIL-STD-286, Fraunhofer ICT Database, and NASA CEA. mass_fraction sums to 1.0; hf_298 in kJ/mol.",
   "formulations": [
     {
-      "name": "Single-base (NC)",
-      "description": "Single-base propellant: nitrocellulose (13.15% N, ~NC12.6)",
+      "name": "M1 Single-Base (105mm Cannon)",
+      "description": "US Army M1 single-base artillery propellant (85% NC 12.60%N Pyrocellulose, 10% DNT, 5% DBP) — MIL-STD-286 / BRL",
       "components": [
-        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.93, "hf_298": -700.0},
-        {"name": "Diphenylamine (stabilizer)", "formula": "C12H11N", "mass_fraction": 0.01, "hf_298": 130.0},
-        {"name": "Dibutyl phthalate", "formula": "C16H22O4", "mass_fraction": 0.06, "hf_298": -843.0}
+        {"name": "Nitrocellulose (12.60% N)", "formula": "C6H7.55N2.45O9.90", "mass_fraction": 0.842, "hf_298": -653.5},
+        {"name": "2,4-Dinitrotoluene (DNT)", "formula": "C7H6N2O4", "mass_fraction": 0.099, "hf_298": -71.5},
+        {"name": "Dibutyl Phthalate (DBP)", "formula": "C16H22O4", "mass_fraction": 0.049, "hf_298": -842.6},
+        {"name": "Diphenylamine (DPA)", "formula": "C12H11N", "mass_fraction": 0.010, "hf_298": 112.3}
       ]
     },
     {
-      "name": "Double-base (NC/NG)",
-      "description": "Double-base propellant: nitrocellulose + nitroglycerin",
+      "name": "M6 Single-Base (Medium Cannon)",
+      "description": "US Army M6 single-base cannon propellant (87% NC 12.60%N Pyrocellulose, 10% DNT, 3% DBP) — MIL-STD-286 / BRL",
       "components": [
-        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.55, "hf_298": -700.0},
-        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.40, "hf_298": -370.0},
-        {"name": "Centralite I", "formula": "C15H16N2O", "mass_fraction": 0.03, "hf_298": -120.0},
-        {"name": "Carbon black", "formula": "C", "mass_fraction": 0.02, "hf_298": 0.0}
+        {"name": "Nitrocellulose (12.60% N)", "formula": "C6H7.55N2.45O9.90", "mass_fraction": 0.861, "hf_298": -653.5},
+        {"name": "2,4-Dinitrotoluene (DNT)", "formula": "C7H6N2O4", "mass_fraction": 0.099, "hf_298": -71.5},
+        {"name": "Dibutyl Phthalate (DBP)", "formula": "C16H22O4", "mass_fraction": 0.030, "hf_298": -842.6},
+        {"name": "Diphenylamine (DPA)", "formula": "C12H11N", "mass_fraction": 0.010, "hf_298": 112.3}
       ]
     },
     {
-      "name": "Triple-base (NC/NG/NQ)",
-      "description": "Triple-base propellant: NC + NG + nitroguanidine",
+      "name": "M9 Double-Base (High-Energy Mortar)",
+      "description": "US Army M9 high-energy double-base propellant (57.75% NC, 40% NG, 1.5% KNO3, 0.75% EC) — BRL IBHVG2",
       "components": [
-        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.28, "hf_298": -700.0},
-        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.22, "hf_298": -370.0},
-        {"name": "Nitroguanidine", "formula": "CH4N4O2", "mass_fraction": 0.47, "hf_298": -92.4},
-        {"name": "Ethyl centralite", "formula": "C15H16N2O", "mass_fraction": 0.03, "hf_298": -120.0}
+        {"name": "Nitrocellulose (13.15% N)", "formula": "C6H7.365N2.635O10.27", "mass_fraction": 0.5775, "hf_298": -651.6},
+        {"name": "Nitroglycerin (NG)", "formula": "C3H5N3O9", "mass_fraction": 0.4000, "hf_298": -370.8},
+        {"name": "Potassium Nitrate (KNO3)", "formula": "KNO3", "mass_fraction": 0.0150, "hf_298": -494.63},
+        {"name": "Ethyl Centralite (EC)", "formula": "C17H20N2O", "mass_fraction": 0.0075, "hf_298": -105.0}
       ]
     },
     {
-      "name": "Composite (NC/NG/Al)",
-      "description": "Aluminized double-base propellant",
+      "name": "JA2 Double-Base (120mm Tank Gun)",
+      "description": "NATO/US 120mm tank gun modified double-base propellant (NC / NG / DEGDN / Akardite II) — US Army ARL",
       "components": [
-        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.45, "hf_298": -700.0},
-        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.30, "hf_298": -370.0},
-        {"name": "Aluminum", "formula": "Al", "mass_fraction": 0.10, "hf_298": 0.0},
-        {"name": "Ammonium perchlorate", "formula": "ClH4NO4", "mass_fraction": 0.12, "hf_298": -295.8},
-        {"name": "Centralite I", "formula": "C15H16N2O", "mass_fraction": 0.03, "hf_298": -120.0}
+        {"name": "Nitrocellulose (13.15% N)", "formula": "C6H7.365N2.635O10.27", "mass_fraction": 0.5950, "hf_298": -651.6},
+        {"name": "Nitroglycerin (NG)", "formula": "C3H5N3O9", "mass_fraction": 0.1490, "hf_298": -370.8},
+        {"name": "DEGDN", "formula": "C4H8N2O7", "mass_fraction": 0.2480, "hf_298": -450.5},
+        {"name": "Akardite II", "formula": "C14H14N2O", "mass_fraction": 0.0070, "hf_298": -106.7},
+        {"name": "Magnesium Oxide (MgO)", "formula": "MgO", "mass_fraction": 0.0005, "hf_298": -601.6},
+        {"name": "Graphite", "formula": "C", "mass_fraction": 0.0005, "hf_298": 0.0}
       ]
     },
     {
-      "name": "Ball powder (WC 844)",
-      "description": "Ball propellant (spherical), typical rifle powder",
+      "name": "M30 Triple-Base (155mm Artillery)",
+      "description": "US Army M30 low-erosion triple-base propellant (28% NC 12.6%N, 22.5% NG, 47.7% NQ, 1.5% EC) — BRL IBHVG2",
       "components": [
-        {"name": "Nitrocellulose", "formula": "C6H7.3N2.7O9.9", "mass_fraction": 0.82, "hf_298": -700.0},
-        {"name": "Nitroglycerin", "formula": "C3H5N3O9", "mass_fraction": 0.10, "hf_298": -370.0},
-        {"name": "Diethyl phthalate", "formula": "C12H14O4", "mass_fraction": 0.04, "hf_298": -689.0},
-        {"name": "Diphenylamine", "formula": "C12H11N", "mass_fraction": 0.01, "hf_298": 130.0},
-        {"name": "Potassium sulfate", "formula": "K2SO4", "mass_fraction": 0.02, "hf_298": -1438.0},
-        {"name": "Calcium carbonate", "formula": "CaCO3", "mass_fraction": 0.01, "hf_298": -1207.0}
+        {"name": "Nitrocellulose (12.60% N)", "formula": "C6H7.55N2.45O9.90", "mass_fraction": 0.280, "hf_298": -653.5},
+        {"name": "Nitroglycerin (NG)", "formula": "C3H5N3O9", "mass_fraction": 0.225, "hf_298": -370.8},
+        {"name": "Nitroguanidine (NQ)", "formula": "CH4N4O2", "mass_fraction": 0.477, "hf_298": -92.4},
+        {"name": "Ethyl Centralite (EC)", "formula": "C17H20N2O", "mass_fraction": 0.015, "hf_298": -105.0},
+        {"name": "Graphite", "formula": "C", "mass_fraction": 0.003, "hf_298": 0.0}
+      ]
+    },
+    {
+      "name": "WC 844 Ball Powder (5.56x45mm NATO)",
+      "description": "Spherical double-base rifle propellant with deterrent & K2SO4 flash suppressant — US Army ARL / EPA AP-42",
+      "components": [
+        {"name": "Nitrocellulose (13.15% N)", "formula": "C6H7.365N2.635O10.27", "mass_fraction": 0.820, "hf_298": -651.6},
+        {"name": "Nitroglycerin (NG)", "formula": "C3H5N3O9", "mass_fraction": 0.100, "hf_298": -370.8},
+        {"name": "Dibutyl Phthalate (DBP)", "formula": "C16H22O4", "mass_fraction": 0.045, "hf_298": -842.6},
+        {"name": "Diphenylamine (DPA)", "formula": "C12H11N", "mass_fraction": 0.010, "hf_298": 112.3},
+        {"name": "Potassium Sulfate (K2SO4)", "formula": "K2SO4", "mass_fraction": 0.015, "hf_298": -1437.8},
+        {"name": "Calcium Carbonate (CaCO3)", "formula": "CaCO3", "mass_fraction": 0.010, "hf_298": -1207.6}
+      ]
+    },
+    {
+      "name": "M43 LOVA Nitramine (Insensitive Munition)",
+      "description": "Low-Vulnerability Ammunition (LOVA) RDX/CAB/NC/BDNPA-F tank cannon propellant — US Army ARL",
+      "components": [
+        {"name": "RDX", "formula": "C3H6N6O6", "mass_fraction": 0.760, "hf_298": 70.3},
+        {"name": "CAB (Binder)", "formula": "C15H22O8", "mass_fraction": 0.120, "hf_298": -1492.0},
+        {"name": "Nitrocellulose (12.60% N)", "formula": "C6H7.55N2.45O9.90", "mass_fraction": 0.040, "hf_298": -653.5},
+        {"name": "BDNPA/F (Plasticizer)", "formula": "C5.5H8.5N4O11", "mass_fraction": 0.076, "hf_298": -636.0},
+        {"name": "Ethyl Centralite (EC)", "formula": "C17H20N2O", "mass_fraction": 0.004, "hf_298": -105.0}
+      ]
+    },
+    {
+      "name": "TP-H1148 Composite Booster (AP/HTPB/Al)",
+      "description": "Aluminized AP/HTPB space-launch solid rocket composite propellant — NASA CEA / Sutton Benchmark",
+      "components": [
+        {"name": "Ammonium Perchlorate (AP)", "formula": "NH4ClO4", "mass_fraction": 0.697, "hf_298": -295.77},
+        {"name": "Aluminum Powder (Al)", "formula": "Al", "mass_fraction": 0.160, "hf_298": 0.0},
+        {"name": "HTPB (R45M Binder)", "formula": "C7.33H10.98O0.06", "mass_fraction": 0.120, "hf_298": -2.9},
+        {"name": "Dioctyl Adipate (DOA)", "formula": "C22H42O4", "mass_fraction": 0.020, "hf_298": -1312.0},
+        {"name": "Iron(III) Oxide (Fe2O3)", "formula": "Fe2O3", "mass_fraction": 0.003, "hf_298": -824.2}
       ]
     }
   ]

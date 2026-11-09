@@ -680,7 +680,10 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
     with _ing_col1:
         from combusto.presets import load_ingredients
         raw_ingredients = load_ingredients()
-        ing_opts = [f"{ing['name']}  ({ing['formula']} | {ing['hf_298']} kJ/mol)" for ing in raw_ingredients]
+        ing_opts = [
+            f"{ing['name']}  ({ing['formula']} | {ing['hf_298']} kJ/mol | CAS {ing.get('cas', 'N/A')})"
+            for ing in raw_ingredients
+        ]
         selected_ing_idx = st.selectbox(
             "Search and inject standardized ingredients",
             range(len(ing_opts)),
@@ -701,6 +704,9 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
                 ))
                 st.session_state.formulations[st.session_state.selected_idx] = formulation
                 st.rerun()
+
+    from combusto.ui_extensions import render_nc_nitration_calculator
+    render_nc_nitration_calculator(formulation)
 
     st.markdown("**Components** — mass fractions should sum to 1.0")
 
@@ -793,8 +799,8 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
                 st.error(str(e))
 
 st.markdown("<br>", unsafe_allow_html=True)
-tab2, tab3, tab_cal, tab_perf, tab4, tab_ballistics, tab_cv, tab_flash, tab_tox, tab_stab, tab_opt, tab5 = st.tabs([
-    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "Internal Ballistics & Erosion", "Closed-Vessel & Vivacity", "Muzzle Flash & Plume", "Smoke & Range Toxicity", "Shelf-Life & Thermal Safety", "Optimizer & Ternary", "VoD Estimator"
+tab2, tab3, tab_cal, tab_perf, tab4, tab_ballistics, tab_cv, tab_flash, tab_tox, tab_stab, tab_opt, tab5, tab_grounding = st.tabs([
+    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "Internal Ballistics & Erosion", "Closed-Vessel & Vivacity", "Muzzle Flash & Plume", "Smoke & Range Toxicity", "Shelf-Life & Thermal Safety", "Optimizer & Ternary", "VoD Estimator", "📚 Benchmarks & Grounding"
 ])
 
 # ===== Tab 2: Conditions & Run =====
@@ -841,11 +847,14 @@ with tab2:
 
     col_pah1, col_pah2 = st.columns([1, 2])
     with col_pah1:
+        from combusto.grounding import EPA_AP42_CALIBRATED_PAH
+        _ui_pah_presets = dict(PRESETS)
+        _ui_pah_presets["epa_ap42_calibrated (Trace VOC/PAH)"] = EPA_AP42_CALIBRATED_PAH
         pah_preset = st.selectbox(
-            "Preset", list(PRESETS.keys()),
-            index=list(PRESETS.keys()).index("moderate"),
+            "Preset", list(_ui_pah_presets.keys()),
+            index=list(_ui_pah_presets.keys()).index("epa_ap42_calibrated (Trace VOC/PAH)"),
         )
-        pah_config = PRESETS[pah_preset]
+        pah_config = _ui_pah_presets[pah_preset]
 
     with col_pah2:
         with st.expander("Customize PAH parameters", expanded=False):
@@ -900,6 +909,7 @@ with tab2:
                         st.success("Calculation complete!")
 
                     st.session_state.results[formulation.name] = result
+                    st.session_state["result"] = result
 
                     # Run comparison if selected
                     if st.session_state.compare_idx is not None:
@@ -947,20 +957,20 @@ with tab3:
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("phi", f"{result.equivalence_ratio:.3f}")
         m2.metric("OB%", f"{result.oxygen_balance_pct:.2f}")
-        m3.metric("T_ad (K)", f"{result.adiabatic_flame_temp_k:.0f}")
-        m4.metric("Impetus (J/g)", f"{result.force_constant_j_per_g:.0f}")
-        m5.metric("gamma", f"{result.gamma:.3f}")
+        m3.metric("T_p Isobaric (K)", f"{result.adiabatic_flame_temp_k:.0f}", help="Constant-pressure flame temperature (ΔH = 0, NASA CEA)")
+        m4.metric("T_v Closed-Vessel (K)", f"{result.isochoric_flame_temp_k:.0f}", help="Constant-volume gun chamber flame temperature (ΔU = 0, STANAG 4115)")
+        m5.metric("Impetus F (J/g)", f"{result.force_constant_j_per_g:.0f}", help="n_gas · R · T_v (US Army BRL / STANAG 4115)")
 
         # Key metrics row 2
         m6, m7, m8, m9, m10 = st.columns(5)
-        m6.metric("Cp_mix (J/mol K)", f"{result.mixture_cp:.2f}")
-        m7.metric("Mean MW", f"{result.mean_molecular_weight:.2f}")
-        m8.metric("Gas moles/g", f"{result.gas_moles_total:.5f}")
+        m6.metric("Covolume η (cm³/g)", f"{result.covolume_cm3_per_g:.3f}", help="BLAKE / Hirschfelder composition-derived Noble-Abel covolume Σ nᵢbᵢ")
+        m7.metric("gamma (Cp/Cv)", f"{result.gamma:.3f}")
+        m8.metric("Mean Gas MW", f"{result.mean_molecular_weight:.2f}")
         if result.computed_pressure_atm > 0 and result.computed_pressure_atm != float("inf"):
             m9.metric("P_chamber (atm)", f"{result.computed_pressure_atm:.0f}")
         else:
-            m9.metric("P_chamber (atm)", "N/A" if result.computed_pressure_atm == 0 else "Overflow")
-        m10.metric("T_equil (K)", f"{result.temperature_k:.0f}")
+            m9.metric("Q_v Calorimetric (J/g)", f"{result.heat_of_explosion_j_per_g:.0f}")
+        m10.metric("Gas moles/g", f"{result.gas_moles_total:.5f}")
 
         # Product distribution
         st.markdown("### Product Distribution")
@@ -2215,3 +2225,8 @@ with tab5:
                 "Typical CHNO range: 2.8 \u2013 3.5 km\u00b7s\u207b\u00b9/(g\u00b7cm\u207b\u00b3)."
             )
 
+
+# ===== Tab_Grounding: Experimental Benchmarks & Literature Provenance =====
+with tab_grounding:
+    from combusto.ui_extensions import render_benchmarks_and_grounding_tab
+    render_benchmarks_and_grounding_tab()

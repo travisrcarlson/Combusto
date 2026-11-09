@@ -35,6 +35,11 @@ def render_noble_abel_isentrope_section(
         st.info("Define a formulation first.")
         return
 
+    res_iso_src = st.session_state.get("res_perf_cached") or st.session_state.get("result")
+    default_iso_eta = 1.00
+    if res_iso_src is not None and getattr(res_iso_src, "covolume_cm3_per_g", 0.0) > 0.3:
+        default_iso_eta = float(min(1.60, max(0.40, round(res_iso_src.covolume_cm3_per_g, 2))))
+
     iso_c1, iso_c2, iso_c3 = st.columns(3)
     with iso_c1:
         iso_delta = st.slider(
@@ -42,14 +47,12 @@ def render_noble_abel_isentrope_section(
         )
     with iso_c2:
         iso_eta = st.slider(
-            "Gas Covolume η (cm³/g)", 0.40, 1.60, 1.00, 0.05, key="iso_eta"
+            "Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.40, 1.60, default_iso_eta, 0.02, key="iso_eta"
         )
     with iso_c3:
         iso_vmax = st.slider(
             "Max Expansion Ratio (V / V₀)", 4.0, 30.0, 15.0, 1.0, key="iso_vmax"
         )
-
-    res_iso_src = st.session_state.get("res_perf_cached") or st.session_state.get("result")
     if res_iso_src is None and st.button("▶ Compute Expansion Isentrope", type="primary", key="btn_iso_calc"):
         res_iso_src = solve_equilibrium(
             formulation, conditions, pah_config, st.session_state.species_db, eq_temp
@@ -119,15 +122,18 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
     st.subheader("Closed-Vessel (Manometric Bomb) Dynamic Vivacity Simulator")
 
     default_F = 1050.0
+    default_eta = 1.00
     if "result" in st.session_state and st.session_state["result"] is not None:
         res_cur = st.session_state["result"]
         if res_cur.force_constant_j_per_g > 0:
             default_F = float(res_cur.force_constant_j_per_g)
+        if getattr(res_cur, "covolume_cm3_per_g", 0.0) > 0.3:
+            default_eta = float(min(1.80, max(0.40, round(res_cur.covolume_cm3_per_g, 3))))
 
     cv1, cv2, cv3 = st.columns(3)
     with cv1:
         cv_F = st.number_input("Force Constant F (J/g)", 200.0, 2500.0, default_F, 10.0, key="cv_F")
-        cv_eta = st.number_input("Gas Covolume η (cm³/g)", 0.40, 1.80, 1.00, 0.05, key="cv_eta")
+        cv_eta = st.number_input("Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.40, 1.80, default_eta, 0.02, key="cv_eta")
         cv_delta = st.number_input("Loading Density Δ (g/cm³)", 0.05, 0.45, 0.20, 0.02, key="cv_delta")
     with cv2:
         geom_labels = {
@@ -486,3 +492,194 @@ def render_stability_tab(formulation: Formulation) -> None:
                 height=380,
             )
             st.plotly_chart(fig_ck, use_container_width=True)
+
+
+def render_nc_nitration_calculator(formulation: Formulation) -> None:
+    """Render the US Army BRL / Kubota Nitrocellulose Nitration (%N) Stoichiometry Synthesizer."""
+    from .grounding import synthesize_nitrocellulose
+    from .models import PropellantComponent
+
+    with st.expander("🧪 Nitrocellulose Nitration (%N) Continuum Synthesizer (US Army BRL BLAKE / MIL-DTL-244C)", expanded=False):
+        st.caption(
+            "Nitrocellulose is a non-stoichiometric nitrate ester polymer whose formula C₆H₁₀₋ₓNₓO₅₊₂ₓ and "
+            "ΔHf,298 = (−4179.0 + 141.25·[%N]) J/g depend continuously on Nitrogen content (%N) per Freedman (ARBRL-TR-02411)."
+        )
+        nc1, nc2, nc3 = st.columns([2, 1, 1])
+        with nc1:
+            nc_pct = st.slider(
+                "Target Nitrogen Content (%N by mass)",
+                min_value=10.50,
+                max_value=14.10,
+                value=13.15,
+                step=0.05,
+                key="nc_synth_pct",
+            )
+        with nc2:
+            nc_mass_frac = st.number_input(
+                "Mass Fraction to Inject",
+                min_value=0.01,
+                max_value=1.00,
+                value=0.50,
+                step=0.05,
+                key="nc_synth_mf",
+            )
+        nc_info = synthesize_nitrocellulose(nc_pct)
+        with nc3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("➕ Inject NC Grade", use_container_width=True, key="btn_inject_nc"):
+                formulation.components.append(
+                    PropellantComponent(
+                        name=f"Nitrocellulose ({nc_pct:.2f}% N)",
+                        formula=nc_info["formula"],
+                        mass_fraction=float(nc_mass_frac),
+                        hf_298=float(nc_info["hf_kj_per_mol"]),
+                    )
+                )
+                st.session_state.formulations[st.session_state.selected_idx] = formulation
+                st.rerun()
+
+        nm1, nm2, nm3, nm4 = st.columns(4)
+        nm1.metric("Anhydroglucose Formula", nc_info["formula"])
+        nm2.metric("ΔHf,298 (Molar / Specific)", f"{nc_info['hf_kj_per_mol']:.1f} kJ/mol", delta=f"{nc_info['hf_j_per_g']:.0f} J/g", delta_color="off")
+        nm3.metric("Substitution Degree x", f"{nc_info['degree_of_substitution_x']:.3f} / 3.0")
+        nm4.metric("Oxygen Balance", f"{nc_info['oxygen_balance_pct']:.1f}%")
+        st.caption(f"**Military Classification:** {nc_info['military_grade']}  |  **Solid Density:** {nc_info['density_g_cm3']:.3f} g/cm³")
+
+
+def render_benchmarks_and_grounding_tab() -> None:
+    """Render the Experimental Benchmarks, NASA CEA / BRL Validation & Provenance Explorer tab."""
+    from .grounding import (
+        METHODOLOGY_CITATIONS,
+        get_ingredient_provenance_df,
+        run_benchmark_validation_suite,
+        validate_epa_ap42_emissions,
+    )
+
+    with st.expander("ℹ️  How to use — Experimental Benchmarks, Code Parity & Data Provenance", expanded=False):
+        st.markdown("""
+        **Verify Combusto's first-principles thermochemical and emission models against peer-reviewed experimental and reference code benchmarks.**
+        - **US Army BRL (BLAKE / IBHVG2), Fraunhofer ICT & NASA CEA Parity**: Executes Combusto live against 8 standard military cannon, LOVA, small-arms, and space-booster propellants (`M1`, `M6`, `M9`, `JA2`, `M30`, `WC 844`, `M43`, `TP-H1148`) and measures parity across Flame Temperature ($T_v / T_p$), Impetus ($F$), Covolume ($\\eta$), $\\gamma$, and Calorimetric $Q_v$.
+        - **US EPA AP-42 Chapter 15 Enclosed-Chamber Emission Factors**: Compares muzzle-freeze gaseous and trace-PAH emission factors ($\\text{g/kg}$) for `WC 844 (5.56×45mm NATO)` against measured US Army AEC / EPA AP-42 firing-point datasets.
+        - **Traceable Provenance & Literature Browser**: Inspect CAS numbers, crystal densities, NASA Glenn / NIST-JANAF polynomials, Hirschfelder/BLAKE molar covolumes $b_i$, and full primary citations.
+        """)
+
+    st.subheader("📚 US Army BRL (BLAKE / IBHVG2), ICT & NASA CEA Benchmark Validation")
+    st.caption("Click below to run Combusto's Gibbs minimization & Noble-Abel solver live across all 8 canonical reference propellants.")
+
+    if st.button("▶ Run Live 8-Propellant Reference Benchmark Suite", type="primary", key="btn_run_benchmarks"):
+        with st.spinner("Solving self-consistent Gibbs equilibrium across M1, M6, M9, JA2, M30, WC844, M43, and TP-H1148..."):
+            st.session_state["bm_suite_out"] = run_benchmark_validation_suite(st.session_state.species_db)
+
+    if "bm_suite_out" in st.session_state:
+        bm_out = st.session_state["bm_suite_out"]
+        bdf = bm_out["benchmark_df"]
+
+        bm1, bm2, bm3, bm4 = st.columns(4)
+        bm1.metric("Flame Temp MAPE (Tv / Tp)", f"{bm_out['mape_temp_pct']:.2f}%", delta="vs BRL / NASA CEA", delta_color="off")
+        bm2.metric("Impetus / Force F MAPE", f"{bm_out['mape_force_pct']:.2f}%", delta="vs STANAG 4115 / IBHVG2", delta_color="off")
+        bm3.metric("BLAKE Covolume η MAPE", f"{bm_out['mape_covolume_pct']:.2f}%", delta="Σ nᵢbᵢ vs Measured", delta_color="off")
+        bm4.metric("Calorimetric Qv MAPE", f"{bm_out['mape_qv_pct']:.2f}%", delta="vs Bomb Calorimetry", delta_color="off")
+
+        st.dataframe(bdf, use_container_width=True, hide_index=True)
+
+        pg1, pg2 = st.columns(2)
+        with pg1:
+            t_min, t_max = 2200.0, 4100.0
+            fig_pt = go.Figure()
+            fig_pt.add_trace(go.Scatter(
+                x=[t_min, t_max], y=[t_min, t_max],
+                mode="lines", name="1:1 Exact Parity",
+                line=dict(color="#8899aa", dash="dash", width=2),
+            ))
+            fig_pt.add_trace(go.Scatter(
+                x=bdf["Ref T (K)"], y=bdf["Combusto T (K)"],
+                mode="markers+text",
+                text=[p.split(" ")[0] for p in bdf["Propellant"]],
+                textposition="top center",
+                name="Benchmark Propellants",
+                marker=dict(size=11, color="#00f0ff", line=dict(width=1, color="#ffffff")),
+            ))
+            fig_pt.update_layout(
+                title="Flame Temperature Parity: Combusto vs. BRL / ICT / NASA CEA",
+                xaxis_title="Published Reference T (K)",
+                yaxis_title="Combusto Predicted T (K)",
+                height=390,
+            )
+            st.plotly_chart(fig_pt, use_container_width=True)
+
+        with pg2:
+            f_min, f_max = 850.0, 1280.0
+            fig_pf = go.Figure()
+            fig_pf.add_trace(go.Scatter(
+                x=[f_min, f_max], y=[f_min, f_max],
+                mode="lines", name="1:1 Exact Parity",
+                line=dict(color="#8899aa", dash="dash", width=2),
+            ))
+            fig_pf.add_trace(go.Scatter(
+                x=bdf["Ref F (J/g)"], y=bdf["Combusto F (J/g)"],
+                mode="markers+text",
+                text=[p.split(" ")[0] for p in bdf["Propellant"]],
+                textposition="top center",
+                name="Propellant Impetus F",
+                marker=dict(size=11, color="#00ff88", line=dict(width=1, color="#ffffff")),
+            ))
+            fig_pf.update_layout(
+                title="Propellant Impetus (Force Constant F) Parity: Combusto vs. BRL",
+                xaxis_title="Published Reference F (J/g)",
+                yaxis_title="Combusto Predicted F (J/g)",
+                height=390,
+            )
+            st.plotly_chart(fig_pf, use_container_width=True)
+
+    st.divider()
+    st.subheader("🌫️ US EPA AP-42 Chapter 15 & US Army AEC Emission Factor Grounding")
+    st.caption(
+        "Muzzle gases freeze kinetically during rapid barrel expansion (~1500–1800 K). Compare Combusto's "
+        "muzzle-freeze equilibrium + EPA-calibrated trace PAH model against enclosed-chamber firing measurements on WC 844 (5.56×45mm NATO)."
+    )
+    ep1, ep2, ep3 = st.columns([1, 1, 1])
+    with ep1:
+        ep_t_freeze = st.slider("Kinetic Freeze-Out Temperature (K)", 1350.0, 2100.0, 1650.0, 25.0, key="ep_tfreeze")
+    with ep2:
+        ep_p_freeze = st.slider("Muzzle Exit Freeze Pressure (atm)", 5.0, 120.0, 35.0, 5.0, key="ep_pfreeze")
+    with ep3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_epa = st.button("▶ Compare vs. EPA AP-42 Table 15.1", use_container_width=True, key="btn_run_epa")
+
+    if run_epa or "epa_val_out" in st.session_state:
+        if run_epa:
+            st.session_state["epa_val_out"] = validate_epa_ap42_emissions(
+                freeze_temp_k=ep_t_freeze,
+                pressure_atm=ep_p_freeze,
+                species_db=st.session_state.species_db,
+            )
+        epa_df = st.session_state["epa_val_out"]["emissions_df"]
+        st.dataframe(epa_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("🔎 Traceable Thermochemical Provenance & Primary Bibliography")
+    prov_tab1, prov_tab2, prov_tab3 = st.tabs([
+        "🧪 Grounded Ingredients (CAS, ρ₀, ΔHf)",
+        "⚛️ Product Species & BLAKE Covolumes (59 Species)",
+        "📖 Peer-Reviewed Methodology Citations",
+    ])
+    with prov_tab1:
+        ing_df = get_ingredient_provenance_df()
+        st.dataframe(ing_df, use_container_width=True, hide_index=True)
+    with prov_tab2:
+        sp_rows = []
+        for sp in st.session_state.species_db.values():
+            sp_rows.append({
+                "Species": sp.name,
+                "Formula": sp.formula,
+                "Phase": sp.phase,
+                "Category": sp.category,
+                "CAS RN": sp.cas or "—",
+                "ΔHf,298 (kJ/mol)": sp.hf_298,
+                "Valid T_max (K)": sp.t_high,
+                "Molar Covolume bᵢ (cm³/mol)": sp.molar_covolume_cm3_mol,
+                "Thermochemical Source": sp.source,
+            })
+        st.dataframe(pd.DataFrame(sp_rows), use_container_width=True, hide_index=True)
+    with prov_tab3:
+        st.dataframe(pd.DataFrame(METHODOLOGY_CITATIONS), use_container_width=True, hide_index=True)

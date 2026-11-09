@@ -28,7 +28,14 @@ from .models import (
 from .chemistry import equivalence_ratio, oxygen_balance
 from .pah_allocation import allocate_pahs
 from .species_db import load_species_db
-from .thermodynamics import R_GAS, enthalpy, gibbs, mixture_cp_mol, adiabatic_flame_temperature
+from .thermodynamics import (
+    R_GAS,
+    enthalpy,
+    gibbs,
+    mixture_cp_mol,
+    adiabatic_flame_temperature,
+    isochoric_flame_temperature,
+)
 
 
 def _build_element_matrix(
@@ -272,18 +279,25 @@ def solve_equilibrium(
         err = abs(inp - out) / max(inp, 1e-30) * 100.0
         elem_balance[elem] = err
 
-    # --- Adiabatic flame temperature estimate ---
+    # --- Adiabatic (T_p, Delta H = 0) & Isochoric (T_v, Delta U = 0) flame temperatures ---
     h_react = 0.0
     for comp in formulation.components:
         moles_comp = comp.mass_fraction / comp.mw
-        h_react += moles_comp * comp.hf_298 * 1000.0  # kJ -> J
+        h_react += moles_comp * comp.hf_298 * 1000.0  # J per gram propellant
+
+    # Convert reactant enthalpy/internal-energy from J/g_propellant to J/mol_product_mixture
+    h_react_per_mol_prod = h_react / total_moles if total_moles > 0 else 0.0
 
     all_species_list = [species_lookup[n] for n in all_moles.keys()]
     t_ad = adiabatic_flame_temperature(
-        all_species_list, mole_fracs, h_react, T_guess=2800.0, p_atm=P
+        all_species_list, mole_fracs, h_react_per_mol_prod, T_guess=2500.0, p_atm=P
+    )
+    t_v = isochoric_flame_temperature(
+        all_species_list, mole_fracs, h_react_per_mol_prod, T_guess=max(t_ad * 1.15, 2600.0)
     )
 
-    cp_mix = mixture_cp_mol(all_species_list, mole_fracs, t_ad)
+    t_ref_thermo = t_v if conditions.mode == "isochoric" else t_ad
+    cp_mix = mixture_cp_mol(all_species_list, mole_fracs, t_ref_thermo)
 
     # --- Extended fields ---
     # Total gas moles (per gram propellant)
@@ -300,8 +314,14 @@ def solve_equilibrium(
     )
     mean_mw = gas_mass / gas_moles_total if gas_moles_total > 0 else 0.0
 
-    # Gamma (Cp/Cv) for gas mixture: Cv = Cp - R for ideal gas
-    # cp_mix is per mol of total mixture; compute gas-only Cp
+    # Composition-dependent Noble-Abel covolume eta = sum(n_i * b_i) in cm3/g (BLAKE / Corner)
+    covolume_cm3_per_g = sum(
+        moles * species_lookup[name].molar_covolume_cm3_mol
+        for name, moles in all_moles.items()
+        if species_lookup[name].phase == "gas"
+    )
+
+    # Gamma (Cp/Cv) for gas mixture evaluated at characteristic chamber temperature
     gas_mole_fracs = {}
     if gas_moles_total > 0:
         gas_mole_fracs = {
@@ -312,23 +332,24 @@ def solve_equilibrium(
     gas_species_list = [
         species_lookup[name] for name in gas_mole_fracs
     ]
-    cp_gas_mix = mixture_cp_mol(gas_species_list, gas_mole_fracs, t_ad) if gas_species_list else 0.0
+    cp_gas_mix = mixture_cp_mol(gas_species_list, gas_mole_fracs, t_ref_thermo) if gas_species_list else 0.0
     gamma = cp_gas_mix / (cp_gas_mix - R_GAS) if cp_gas_mix > R_GAS else 1.0
 
-    # Force constant: F = n_gas_total * R * T_ad  (J per gram propellant)
-    force_constant = gas_moles_total * R_GAS * t_ad
+    # Propellant Force Constant (Impetus): F = n_gas_total * R * T_v (NATO STANAG 4115 / US Army BRL)
+    force_constant = gas_moles_total * R_GAS * t_v
+    isobaric_force = gas_moles_total * R_GAS * t_ad
 
     # --- Isochoric pressure via Noble-Abel EOS ---
     computed_pressure_atm = 0.0
     if conditions.mode == "isochoric" and conditions.loading_density is not None:
-        # loading_density in g/cm³ => volume per gram = 1/rho  cm³/g
-        # Convert to m³/g: 1 cm³ = 1e-6 m³
         v_per_gram = 1.0 / conditions.loading_density * 1e-6  # m³ per gram
-        b = conditions.covolume_m3_per_mol
-        # P = n_gas * R * T / (V - n_gas * b)   [per gram basis]
-        denominator = v_per_gram - gas_moles_total * b
+        if abs(conditions.covolume_m3_per_mol - 1.0e-3) > 1e-9:
+            nb_m3_per_g = gas_moles_total * conditions.covolume_m3_per_mol
+        else:
+            nb_m3_per_g = covolume_cm3_per_g * 1e-6
+        denominator = v_per_gram - nb_m3_per_g
         if denominator > 0:
-            p_pa = gas_moles_total * R_GAS * t_ad / denominator
+            p_pa = gas_moles_total * R_GAS * t_v / denominator
             computed_pressure_atm = p_pa / 101325.0
         else:
             computed_pressure_atm = float("inf")
@@ -337,28 +358,28 @@ def solve_equilibrium(
     # Gas volume V0 (L/kg at standard 273.15K, 1 atm)
     gas_volume_l_per_kg = gas_moles_total * 1000.0 * 22.414
 
-    # Specific Impulse Isp (vacuum, assuming expansion to 1 atm)
+    # Specific Impulse Isp (vacuum-referenced nozzle expansion to 1 atm uses isobaric T_p)
     specific_impulse_s = 0.0
     if gamma > 1.0 and mean_mw > 0:
         pe = 1.0
-        pc = max(P, 1.01) # Avoid negative ratio if P <= 1 atm
+        pc = max(P, 1.01)
         g0 = 9.80665
-        r_spec = R_GAS / (mean_mw / 1000.0) # J/(kg K)
+        r_spec = R_GAS / (mean_mw / 1000.0)
         term1 = (2 * gamma / (gamma - 1)) * r_spec * t_ad
         term2 = 1.0 - (pe / pc)**((gamma - 1) / gamma)
         if term1 * term2 > 0:
             v_e = math.sqrt(term1 * term2)
             specific_impulse_s = v_e / g0
 
-    # Heat of Explosion (Qv) for Bomb Calorimeter
-    # delta_U = delta_H - delta(nRT)
-    h_prod_298 = sum(
-        moles * enthalpy(species_lookup[name], 298.15)
-        for name, moles in all_moles.items()
-    )
+    # Heat of Explosion (Qv) for Bomb Calorimeter (298.15 K, liquid H2O reference)
+    h_prod_298 = 0.0
+    for name, moles in all_moles.items():
+        if name == "H2O" and conditions.mode != "bomb_calorimeter" and "H2O(l)" in species_db:
+            h_prod_298 += moles * enthalpy(species_db["H2O(l)"], 298.15)
+        else:
+            h_prod_298 += moles * enthalpy(species_lookup[name], 298.15)
     delta_h_298 = h_prod_298 - h_react
-    
-    # If not in bomb mode, we approximate Qv by assuming H2O condenses
+
     n_gas_298 = gas_moles_total
     if conditions.mode != "bomb_calorimeter" and "H2O" in species_lookup and species_lookup["H2O"].phase == "gas":
         n_gas_298 -= all_moles.get("H2O", 0.0)
@@ -376,6 +397,7 @@ def solve_equilibrium(
         oxygen_balance_pct=ob_pct,
         element_balance=elem_balance,
         adiabatic_flame_temp_k=t_ad,
+        isochoric_flame_temp_k=t_v,
         mixture_cp=cp_mix,
         enthalpy_change_kj=h_react / 1000.0,
         carbon_distribution=carbon_dist,
@@ -383,6 +405,8 @@ def solve_equilibrium(
         computed_pressure_atm=computed_pressure_atm,
         gas_moles_total=gas_moles_total,
         force_constant_j_per_g=force_constant,
+        isobaric_force_j_per_g=isobaric_force,
+        covolume_cm3_per_g=covolume_cm3_per_g,
         mean_molecular_weight=mean_mw,
         gamma=gamma,
         heat_of_explosion_j_per_g=heat_of_explosion_j_per_g,
@@ -400,58 +424,41 @@ def solve_equilibrium_adiabatic(
     tol: float = 1.0,
     max_iter: int = 30,
 ) -> CombustionResult:
-    """Self-consistent adiabatic flame temperature + equilibrium solver.
-
-    Iterates between solving equilibrium at temperature T and recomputing
-    the adiabatic flame temperature from the resulting product composition,
-    until the temperature converges (|T_new - T_old| < tol).
-
-    Parameters
-    ----------
-    formulation : Formulation
-        Propellant formulation.
-    conditions : CombustionConditions
-        Operating conditions.
-    pah_config : PAHAllocationConfig
-        PAH allocation configuration.
-    species_db : dict, optional
-        Species database (loaded automatically if None).
-    t_guess : float
-        Initial temperature guess (K).
-    tol : float
-        Convergence tolerance on temperature (K). Default 1 K.
-    max_iter : int
-        Maximum number of T-composition iterations. Default 30.
-
-    Returns
-    -------
-    CombustionResult
-        Equilibrium result with converged=True if iteration converged,
-        and iterations set to the number of outer loops performed.
-    """
+    """Self-consistent adiabatic (isobaric T_p or isochoric T_v) + equilibrium solver."""
     if species_db is None:
         species_db = load_species_db()
 
     T = t_guess
     converged = False
     result = None
-    # Relaxation factor: blend old and new T to damp oscillations.
-    # Start with aggressive updates, increase damping if oscillating.
     relax = 0.5
+    work_cond = CombustionConditions(
+        temperature_k=conditions.temperature_k,
+        pressure_atm=conditions.pressure_atm,
+        mode=conditions.mode,
+        loading_density=conditions.loading_density,
+        chamber_volume_cm3=conditions.chamber_volume_cm3,
+        propellant_mass_g=conditions.propellant_mass_g,
+        inert_gas=conditions.inert_gas,
+        inert_moles=conditions.inert_moles,
+        covolume_m3_per_mol=conditions.covolume_m3_per_mol,
+    )
 
     for iteration in range(1, max_iter + 1):
-        # Solve equilibrium at current T
         result = solve_equilibrium(
-            formulation, conditions, pah_config,
+            formulation, work_cond, pah_config,
             species_db=species_db, temperature_k=T,
         )
 
-        # The adiabatic flame temperature computed inside solve_equilibrium
-        T_new_raw = result.adiabatic_flame_temp_k
+        # In isochoric closed-chamber mode, self-consistently iterate T_v and Noble-Abel P
+        if work_cond.mode == "isochoric":
+            T_new_raw = result.isochoric_flame_temp_k
+            if 0.0 < result.computed_pressure_atm < 1e6:
+                work_cond.pressure_atm = 0.5 * work_cond.pressure_atm + 0.5 * result.computed_pressure_atm
+        else:
+            T_new_raw = result.adiabatic_flame_temp_k
 
-        # Damped update: T_next = T + relax * (T_new_raw - T)
         T_new = T + relax * (T_new_raw - T)
-        # Clamp to physical range
         T_new = max(T_new, 300.0)
         T_new = min(T_new, 6000.0)
 
@@ -462,14 +469,12 @@ def solve_equilibrium_adiabatic(
 
         T = T_new
 
-    # Do one final solve at the converged temperature to ensure consistency
     if converged and abs(T - result.temperature_k) > 0.1:
         result = solve_equilibrium(
-            formulation, conditions, pah_config,
+            formulation, work_cond, pah_config,
             species_db=species_db, temperature_k=T,
         )
 
-    # Annotate convergence info
     result.converged = converged
     result.iterations = iteration  # noqa: F821 — set in loop
 

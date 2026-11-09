@@ -70,3 +70,4 @@ In the left-hand sidebar under **⚙️ Combusto Local Admin**, select **"API Ke
 10. **Shelf-Life & Thermal Safety**: **NATO STANAG 4582** Arrhenius stabilizer depletion shelf-life model and **Frank-Kamenetskii** critical cook-off temperature ($T_{\text{crit}}$) vs. container diameter.
 11. **Optimizer & Ternary**: Constrained SLSQP formulation optimizer and interactive 3-component simplex ternary phase diagrams.
 12. **VoD Estimator**: Kamlet-Jacobs detonation velocity and Chapman-Jouguet ($P_{CJ}$) screening calculator.
+13. **📚 Benchmarks & Grounding**: Live 8-propellant validation suite against US Army BRL (BLAKE / IBHVG2), Fraunhofer ICT, and NASA CEA benchmarks, US EPA AP-42 Chapter 15 enclosed-chamber firing emission comparisons, Nitrocellulose %N nitration continuum synthesis, and searchable CAS / NIST-JANAF / NASA Glenn provenance tables.

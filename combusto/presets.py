@@ -64,11 +64,11 @@ STANDARD_EXPLOSIVES = [
     ),
     Formulation(
         name="PBX-9404",
-        description="HMX-based plastic bonded explosive",
+        description="HMX-based plastic bonded explosive (LANL Explosives Handbook)",
         components=[
-            PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=0.94, hf_298=74.4),
-            PropellantComponent(name="Nitrocellulose", formula="C6H7.3N2.7O9.9", mass_fraction=0.03, hf_298=-700.0),
-            PropellantComponent(name="CEF (Plasticizer)", formula="C6H12Cl3O4P", mass_fraction=0.03, hf_298=-1100.0)
+            PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=0.94, hf_298=74.9),
+            PropellantComponent(name="Nitrocellulose (12.0% N)", formula="C6H7.73N2.27O9.54", mass_fraction=0.03, hf_298=-655.0),
+            PropellantComponent(name="CEF (Tris(beta-chloroethyl)phosphate)", formula="C6H12Cl3O4P", mass_fraction=0.03, hf_298=-1255.0)
         ]
     ),
     Formulation(

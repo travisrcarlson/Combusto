@@ -144,14 +144,17 @@ def export_result_pdf(result: CombustionResult, formulation: Formulation) -> byt
     story.append(Paragraph("2. Thermochemical & Performance Indicators", section_style))
     
     metric_data = [
-        [Paragraph("Parameter", table_header_style), Paragraph("Calculated Value", table_header_style), Paragraph("Meaning / Units", table_header_style)],
-        [Paragraph("Equivalence Ratio (&phi;)", table_text_style), Paragraph(f"{result.equivalence_ratio:.3f}", table_text_style), Paragraph("&phi; > 1 indicates fuel-rich mixture", table_text_style)],
-        [Paragraph("Oxygen Balance (OB%)", table_text_style), Paragraph(f"{result.oxygen_balance_pct:.2f}%", table_text_style), Paragraph("Oxygen availability relative to total combustion", table_text_style)],
-        [Paragraph("Adiabatic Flame Temp", table_text_style), Paragraph(f"{result.adiabatic_flame_temp_k:.1f} K", table_text_style), Paragraph("Max combustion temp under no heat loss", table_text_style)],
-        [Paragraph("Specific Impulse (Isp)", table_text_style), Paragraph(f"{result.specific_impulse_s:.1f} s", table_text_style), Paragraph("Total vacuum thrust force over mass flow rate", table_text_style)],
-        [Paragraph("Force Constant (F)", table_text_style), Paragraph(f"{result.force_constant_j_per_g:.1f} J/g", table_text_style), Paragraph("Propellant energy constant (noble force)", table_text_style)],
-        [Paragraph("Ratio of Specific Heats (&gamma;)", table_text_style), Paragraph(f"{result.gamma:.3f}", table_text_style), Paragraph("Cp/Cv of exhaust gas mixture", table_text_style)],
-        [Paragraph("Mean Molecular Weight", table_text_style), Paragraph(f"{result.mean_molecular_weight:.2f} g/mol", table_text_style), Paragraph("Average weight of gas phase products", table_text_style)]
+        [Paragraph("Parameter", table_header_style), Paragraph("Calculated Value", table_header_style), Paragraph("Meaning / Reference Standard", table_header_style)],
+        [Paragraph("Equivalence Ratio (&phi;)", table_text_style), Paragraph(f"{result.equivalence_ratio:.3f}", table_text_style), Paragraph("&phi; > 1 indicates fuel-rich stoichiometry", table_text_style)],
+        [Paragraph("Oxygen Balance (OB%)", table_text_style), Paragraph(f"{result.oxygen_balance_pct:.2f}%", table_text_style), Paragraph("Stoichiometric oxygen balance to CO2/H2O", table_text_style)],
+        [Paragraph("Isobaric Flame Temp (T_p)", table_text_style), Paragraph(f"{result.adiabatic_flame_temp_k:.1f} K", table_text_style), Paragraph("Constant-pressure flame temp (&Delta;H = 0, NASA CEA)", table_text_style)],
+        [Paragraph("Isochoric Flame Temp (T_v)", table_text_style), Paragraph(f"{result.isochoric_flame_temp_k:.1f} K", table_text_style), Paragraph("Closed-vessel gun chamber temp (&Delta;U = 0, STANAG 4115)", table_text_style)],
+        [Paragraph("Propellant Force / Impetus (F)", table_text_style), Paragraph(f"{result.force_constant_j_per_g:.1f} J/g", table_text_style), Paragraph("n_gas * R * T_v (US Army BRL / STANAG 4115)", table_text_style)],
+        [Paragraph("Noble-Abel Covolume (&eta;)", table_text_style), Paragraph(f"{result.covolume_cm3_per_g:.3f} cm3/g", table_text_style), Paragraph("Composition-derived &Sigma; n_i b_i (BLAKE ARBRL-TR-02411)", table_text_style)],
+        [Paragraph("Heat of Explosion (Q_v)", table_text_style), Paragraph(f"{result.heat_of_explosion_j_per_g:.0f} J/g", table_text_style), Paragraph("Isothermal 298.15 K bomb calorimetry (H2O liquid)", table_text_style)],
+        [Paragraph("Specific Impulse (Isp)", table_text_style), Paragraph(f"{result.specific_impulse_s:.1f} s", table_text_style), Paragraph("Ideal nozzle expansion thrust per unit weight flow", table_text_style)],
+        [Paragraph("Ratio of Specific Heats (&gamma;)", table_text_style), Paragraph(f"{result.gamma:.3f}", table_text_style), Paragraph("Gas-phase Cp/Cv at chamber temperature", table_text_style)],
+        [Paragraph("Mean Molecular Weight", table_text_style), Paragraph(f"{result.mean_molecular_weight:.2f} g/mol", table_text_style), Paragraph("Molar-weighted average gas product weight", table_text_style)]
     ]
     
     metric_table = Table(metric_data, colWidths=[180, 130, 220])
@@ -258,6 +261,20 @@ def export_result_pdf(result: CombustionResult, formulation: Formulation) -> byt
             ('RIGHTPADDING', (0,0), (-1,-1), 0)
         ]))
         story.append(cols_table)
+
+    # Section 5: Data Provenance & Primary Literature Citations
+    story.append(Spacer(1, 14))
+    story.append(Paragraph("5. Thermochemical Grounding & Primary References", section_style))
+    refs = [
+        "1. McBride, B. J., Zehe, M. J., & Gordon, S. (2002). NASA Glenn Coefficients for Calculating Thermodynamic Properties of Individual Species, NASA/TP-2002-211556.",
+        "2. Chase, M. W. (1998). NIST-JANAF Thermochemical Tables (4th Ed.), J. Phys. Chem. Ref. Data, Monograph 9.",
+        "3. Freedman, E. (1982). BLAKE: A Thermodynamics Code Based on TIGER, US Army BRL Report ARBRL-TR-02411; Anderson & Fickie (1987), IBHVG2, BRL-TR-2829.",
+        "4. Fraunhofer ICT Database of Thermochemical Values (7th Ed.) & NATO STANAG 4115 / 4400 / 4582.",
+        "5. US EPA AP-42 Chapter 15 (Ordnance Detonation & Firing Emission Factors) & NIOSH / OSHA 29 CFR 1910.1000."
+    ]
+    for r_txt in refs:
+        story.append(Paragraph(r_txt, table_text_style))
+        story.append(Spacer(1, 2))
         
     # Build Document
     doc.build(story)

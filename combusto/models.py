@@ -101,6 +101,9 @@ class Species:
     t_low: float = 200.0
     t_high: float = 6000.0
     hf_298: float = 0.0  # Standard enthalpy of formation kJ/mol (backup)
+    cas: str = ""
+    source: str = "NASA Glenn TP-2002-211556 / Burcat"
+    molar_covolume_cm3_mol: float = 0.0
 
     @property
     def composition(self) -> Dict[str, float]:
@@ -211,7 +214,10 @@ class CombustionResult:
     # Extended fields for ballistic / isochoric calculations
     computed_pressure_atm: float = 0.0
     gas_moles_total: float = 0.0
-    force_constant_j_per_g: float = 0.0  # propellant force = n_gas * R * T_ad per gram
+    force_constant_j_per_g: float = 0.0  # propellant impetus F = n_gas * R * T_v per gram
+    isobaric_force_j_per_g: float = 0.0  # isobaric RT product = n_gas * R * T_p per gram
+    isochoric_flame_temp_k: float = 0.0  # closed-vessel constant-volume flame temp T_v (K)
+    covolume_cm3_per_g: float = 0.0      # composition-derived Noble-Abel covolume eta (cm3/g)
     mean_molecular_weight: float = 0.0
     gamma: float = 0.0  # ratio of specific heats Cp/Cv for gas mixture
     heat_of_explosion_j_per_g: float = 0.0

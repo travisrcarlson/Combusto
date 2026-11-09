@@ -89,12 +89,13 @@ def adiabatic_flame_temperature(
     h_reactants: float,
     T_guess: float = 2500.0,
     p_atm: float = 1.0,
-    tol: float = 1.0,
+    tol: float = 0.5,
     max_iter: int = 200,
 ) -> float:
-    """Estimate adiabatic flame temperature by iterating H_products(T) = H_reactants.
+    """Estimate constant-pressure adiabatic flame temperature T_p (Delta H = 0).
 
-    Uses Newton-like iteration: T_new = T - (H(T) - H_target) / Cp(T).
+    Note: `h_reactants` must be on the same molar basis as `mole_fractions`
+    (i.e. J per mole of product mixture when `mole_fractions` sum to 1.0).
     """
     T = T_guess
     for _ in range(max_iter):
@@ -106,6 +107,46 @@ def adiabatic_flame_temperature(
         if cp_mix < 1e-10:
             break
         dT = (h_reactants - h_prod) / cp_mix
+        T += dT
+        T = max(T, 300.0)
+        T = min(T, 8000.0)
+        if abs(dT) < tol:
+            break
+    return T
+
+
+def isochoric_flame_temperature(
+    species_list: list,
+    mole_fractions: dict,
+    u_reactants: float,
+    T_guess: float = 2800.0,
+    tol: float = 0.5,
+    max_iter: int = 200,
+) -> float:
+    """Estimate constant-volume (closed-vessel) flame temperature T_v (Delta U = 0).
+
+    Used for NATO STANAG 4115 / US Army BRL propellant Impetus (F = n_gas * R * T_v).
+    `u_reactants` must be on the same molar basis as `mole_fractions` (J/mol_mix).
+    """
+    T = T_guess
+    for _ in range(max_iter):
+        u_prod = 0.0
+        cv_mix = 0.0
+        for sp in species_list:
+            xi = mole_fractions.get(sp.name, 0.0)
+            if xi <= 0:
+                continue
+            hi = enthalpy(sp, T)
+            cpi = cp(sp, T)
+            if sp.phase == "gas":
+                u_prod += xi * (hi - R_GAS * T)
+                cv_mix += xi * max(cpi - R_GAS, 1.5 * R_GAS)
+            else:
+                u_prod += xi * hi
+                cv_mix += xi * cpi
+        if cv_mix < 1e-10:
+            break
+        dT = (u_reactants - u_prod) / cv_mix
         T += dT
         T = max(T, 300.0)
         T = min(T, 8000.0)
