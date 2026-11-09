@@ -1,73 +1,71 @@
 # Combusto: Desktop Pro Edition
 **Developer, Ballistician & Administrative Setup Guide**
 
-Welcome to the standalone Desktop Pro edition of **Combusto**. This localized build (`app_local.py`) unlocks administrative editing of the core empirical thermochemical databases, live PubChem/NIST chemical scraping, and local API key management, while providing the full 12-module thermochemical, ballistic, plume, stability, and range-hygiene suite.
+Welcome to the standalone Desktop Pro edition of **Combusto**. This localized build (`app_local.py`) unlocks administrative editing of the core empirical thermochemical databases, live PubChem/NIST chemical scraping, and local API key management, while providing the full 5-Workspace multi-physics thermochemical, rocket nozzle, interior ballistic, climatic/Monte-Carlo tolerance, signature/hygiene, and surveillance engineering suite.
 
 ---
 
 ## 1. Installation & Boot Protocol
 
-Before launching Combusto, ensure you have **Python 3.9+** installed and access to your system terminal (PowerShell, Command Prompt, or macOS/Linux Terminal).
+Ensure you have **Python 3.9+** installed and access to your system terminal (PowerShell, Command Prompt, or macOS/Linux Terminal).
 
 **Step 1:** Open your terminal and navigate to this extracted folder:
 ```bash
 cd path/to/Combusto_Pro_Desktop
 ```
 
-**Step 2:** Install all mathematical, optimization, and PDF reporting dependencies:
+**Step 2:** Install all scientific, optimization, and PDF reporting dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-*(Or manually: `pip install streamlit numpy scipy pandas openpyxl plotly reportlab`)*
+*(Or manually: `pip install streamlit numpy scipy pandas openpyxl plotly reportlab toml requests`)*
 
 **Step 3:** Launch the Desktop Pro application using Streamlit:
 ```bash
 streamlit run app_local.py
 ```
-*(Note: Running `app.py` launches the public web version without the Database Editor or API Key Manager. Always run `app_local.py` for full administrative capabilities.)*
+*(Note: Running `app.py` launches the public web version without the Database Editor, API Key Manager, or live PubChem/NIST scraper. Always run `app_local.py` for full local administrative capabilities. Default session access password: `combusto2026`.)*
 
 ---
 
 ## 2. Master Database Editor & Live PubChem/NIST Lookup (`app_local.py` Exclusive)
 
-In the left-hand sidebar under **⚙️ Combusto Local Admin**, select **"Database Editor"**.
-
-Combusto is grounded in three core JSON databases:
-1. `data/ingredients.json` — Empirical formulas, molecular weights, densities, and standard heats of formation ($\Delta H^\circ_{f,298}$) for energetic oxidizers, binders, plasticizers, and stabilizers.
-2. `data/propellants.json` — Standardized single-base, double-base, triple-base, and composite propellant formulations.
-3. `data/species.json` — NASA 7-coefficient polynomial dictionary for gaseous, condensed, and 16-EPA-priority PAH product species.
-
-**Live Chemical Thermochemistry Scraper:**
-- When editing `ingredients.json`, expand **🌐 Fetch Ingredient from PubChem & NIST WebBook**.
-- Enter any chemical name or CAS number (e.g., `RDX`, `Diphenylamine`, `Triacetin`) to query PubChem PUG-REST for molecular formula/MW and scrape NIST Chemistry WebBook for condensed/gas-phase $\Delta H^\circ_{f,298}$, then append directly to `ingredients.json`.
-
-**Manual Editing:**
-- Double-click any cell in the interactive table to modify values, add rows, or delete rows, then click **"💾 Save to Disk"** to persist changes permanently.
+In the left-hand sidebar under **⚙️ Combusto Local Admin**:
+- **Database Editor**: Inspect, edit, add, or delete entries directly in:
+  1. `data/ingredients.json` — 48 grounded energetic oxidizers, nitrate esters (MIL-DTL-244C NC grades), binders, plasticizers, and stabilizers with CAS Registry Numbers, crystal densities $\rho_0$, and condensed-phase $\Delta H^\circ_{f,298}$.
+  2. `data/propellants.json` — Standardized NATO/US military cannon, mortar, small-arms, LOVA, and space-booster formulations (`M1`, `M6`, `M9`, `JA2`, `M30`, `WC 844`, `M43`, `TP-H1148`).
+  3. `data/species.json` — 59-species NASA Glenn / NIST-JANAF 7-coefficient polynomial dictionary with Hirschfelder/BLAKE molar covolumes $b_i$ and 12 priority PAH species.
+- **External API Chemical Lookup (PubChem & NIST WebBook)**: Inside the **Formulation Editor** on `Main Workbench`, expand **🔍 External API Chemical Lookup** to query PubChem PUG REST by compound name or SMILES and retrieve $\Delta H^\circ_{f,298}$ from NIST Chemistry WebBook, then inject directly into your active formulation.
 
 ---
 
 ## 3. API Key Manager & Secrets Storage (`app_local.py` Exclusive)
 
-In the left-hand sidebar under **⚙️ Combusto Local Admin**, select **"API Key Manager"**.
-
-1. Obtain your API tokens from Materials Project (`mp-api`), NIST, PubChem, or ChemSpider.
-2. Paste them into the masked input fields and click **"🔒 Save Environment Secrets"**.
-3. Combusto writes these keys locally to `.streamlit/secrets.toml` (excluded from Git via `.gitignore`), keeping your credentials strictly offline on your machine.
+In the left-hand sidebar under **⚙️ Combusto Local Admin**, select **"API Key Manager"**:
+1. Enter your optional API tokens for NIST WebBook, Materials Project (`mp-api`), or PubChem.
+2. Click **"🔒 Save Environment Secrets"**.
+3. Keys are written locally to `.streamlit/secrets.toml` (excluded from Git and excluded from ZIP exports), keeping your credentials strictly offline on your workstation.
 
 ---
 
-## 4. Overview of Analysis Suites
+## 4. Guide to the 5 Engineering Workspaces
 
-1. **Formulation Builder**: Build multi-ingredient propellants with live Oxygen Balance ($\text{OB}\%$), elemental mass fractions, and density checks.
-2. **Conditions & Run / Results**: Gibbs free-energy minimization solver (isobaric, isochoric Noble-Abel, or self-consistent adiabatic) with PAH/soot carbon partitioning and formatted **PDF Lab Report** export.
-3. **Isothermal Calorimetry ($Q_v$)**: Bomb-calorimeter heat of explosion and product water phase state at $298.15\text{ K}$.
-4. **Isentropic Expansion ($I_{sp}$) & Real-Gas Cycles**: Rocket nozzle $I_{sp}$ plus **Noble-Abel Real-Gas vs. Ideal Gas** $P\text{–}V$ expansion isentropes, compressibility factor $Z$, sound speed, and reversible $\int P\,dV$ work.
-5. **Sensitivity Analysis (1D & 2D)**: Parametric 1D sweeps and simultaneous 2-variable 3D surface / 2D contour maps across $\phi$, $T$, and $P$.
-6. **Internal Ballistics & Barrel Erosion**: Coupled Lagrange-gradient interior ballistics ODE solver with **7-perf & 19-perf rosette** burnback cross-section visualizers, sliver phase modeling, transient bore wall temperature, and EFC barrel wear life estimation.
-7. **Closed-Vessel & Vivacity**: NATO STANAG 4115 manometric bomb simulator ($P(t)$, $dP/dt$, dynamic vivacity $L$) plus linear **Abel EOS ($F, \eta$)** and **Saint-Robert ($a, n$)** multi-density regression calibrator.
-8. **Muzzle Flash & Plume**: Mach-disk normal-shock recovery temperature and $\text{K}_2\text{SO}_4 / \text{KNO}_3$ alkali radical-scavenging afterburn suppression predictor.
-9. **Smoke & Range Toxicity**: **NATO AGARD / STANAG 4400** primary/secondary plume condensation classifier plus indoor firing-bay **OSHA PEL / NIOSH REL / IDLH** gaseous hazard quotients and **EPA BaP-TEQ** carcinogenic PAH inventory.
-10. **Shelf-Life & Thermal Safety**: **NATO STANAG 4582** Arrhenius stabilizer depletion shelf-life model and **Frank-Kamenetskii** critical cook-off temperature ($T_{\text{crit}}$) vs. container diameter.
-11. **Optimizer & Ternary**: Constrained SLSQP formulation optimizer and interactive 3-component simplex ternary phase diagrams.
-12. **VoD Estimator**: Kamlet-Jacobs detonation velocity and Chapman-Jouguet ($P_{CJ}$) screening calculator.
-13. **📚 Benchmarks & Grounding**: Live 8-propellant validation suite against US Army BRL (BLAKE / IBHVG2), Fraunhofer ICT, and NASA CEA benchmarks, US EPA AP-42 Chapter 15 enclosed-chamber firing emission comparisons, Nitrocellulose %N nitration continuum synthesis, and searchable CAS / NIST-JANAF / NASA Glenn provenance tables.
+1. **🪪 Passport & Thermochemistry**
+   - **Executive Propellant Passport**: One-click full-suite characterization across all physics engines, rendering a 6-axis survivability/performance radar footprint, qualification summary table, and **📘 Full Multi-Suite Engineering Dossier (PDF)** download.
+   - **Conditions & Equilibrium Solver**: Isobaric, closed-vessel isochoric, and self-consistent adiabatic Gibbs minimization with optional **BLAKE / Virial Real-Gas Fugacity** ($\ln \phi_i = b_i P / RT$) and PAH/soot partitioning.
+   - **Equilibrium Results & Exports**: Isobaric $T_p$, closed-vessel $T_v$, gun Impetus $F = n_{\text{gas}} R T_v$, composition-derived BLAKE covolume $\eta = \sum n_i b_i$, real-gas compressibility $Z$, species mole/mass tables, and CSV/Excel/JSON/PDF exports.
+   - **Nozzle Isp (Shifting vs. Frozen) & Calorimetry**: NASA CEA-style 1D rocket nozzle expansion solving **both Shifting Equilibrium** ($S(n_{\text{eq}}(T,P), T, P) = S_c$) and **Frozen Composition** for $C^*$, $C_F$, $\epsilon = A_e/A_t$, $T_e$, Ambient & Vacuum $I_{sp}$, Noble-Abel real-gas expansion isentropes, and $298.15\text{ K}$ liquid-$\text{H}_2\text{O}$ bomb calorimetry ($Q_v$).
+2. **🎯 Ballistics & Chamber Tolerance**
+   - **Interior Ballistics & Barrel Erosion**: Lagrange-gradient gun ODE solver with progressive **7-perf & 19-perf rosette** burnback visualizers, sliver burnout, Lawton/Krause transient bore wall heating, and EFC barrel wear life.
+   - **STANAG 2895 Climatic & Monte Carlo Dispersion**: Evaluates burn-rate temperature sensitivity $a(T_0) = a_{\text{ref}} \exp[\sigma_p(T_0 - T_{\text{ref}})]$ across **NATO STANAG 2895 climatic zones** (`-40 °C` Arctic C2 to `+63 °C` Hot Desert A1) against Service MPOP & Proof limits, plus **Monte Carlo lot-tolerance ballistic dispersion** ($P_{\max} + 3\sigma$, $C_{pk}$, $\sigma_{V_0}$, Extreme Spread, and Tornado correlation drivers).
+   - **Closed-Vessel & Vivacity**: NATO STANAG 4115 manometric bomb simulator and linear Abel EOS ($F, \eta$) + Saint-Robert ($a, n$) calibrator.
+   - **VoD Detonation Screening**: Kamlet-Jacobs detonation velocity and Chapman-Jouguet ($P_{CJ}$) screening.
+3. **🔥 Signature, Plume & Hygiene**
+   - **Muzzle Flash & Alkali Suppression**: Mach-disk normal-shock temperature recovery and $\text{K}_2\text{SO}_4 / \text{KNO}_3$ free-radical scavenging plume auto-ignition predictor.
+   - **Plume Smoke (STANAG 4400) & Range Toxicity**: AGARD / STANAG 4400 primary/secondary smoke transmittance, indoor firing-bay **OSHA PEL / NIOSH REL / IDLH** gaseous hazard quotients, and **BaP-TEQ** carcinogenic PAH inventory.
+4. **🛡️ Design, Sensitivity & Surveillance**
+   - **SLSQP Optimizer & Ternary Maps**: Constrained inverse formulation design and 3-component simplex ternary phase diagrams.
+   - **1D & 2D Sensitivity Sweeps**: 1D sweeps and 2-variable 3D surface / 2D contour maps across $\phi$, $T$, and $P$.
+   - **STANAG 4582 Shelf-Life & Cook-Off**: Arrhenius stabilizer depletion shelf-life and Frank-Kamenetskii critical cook-off temperature $T_{\text{crit}}$.
+5. **📚 Benchmarks & Provenance**
+   - Live 8-propellant parity suite against **US Army BRL (BLAKE / IBHVG2)**, **Fraunhofer ICT**, and **NASA CEA**, **US EPA AP-42 Ch. 15** firing emission validation, and searchable CAS / NIST-JANAF / NASA Glenn provenance tables.

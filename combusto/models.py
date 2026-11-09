@@ -174,6 +174,7 @@ class CombustionConditions:
     inert_gas: Optional[str] = None  # e.g. "N2", "Ar"
     inert_moles: float = 0.0
     covolume_m3_per_mol: float = 1.0e-3  # Noble-Abel covolume (m³/mol)
+    real_gas_fugacity: bool = False  # Virial / BLAKE covolume fugacity ln(phi_i) = b_i * P / (R * T)
 
 
 @dataclass
@@ -223,5 +224,6 @@ class CombustionResult:
     heat_of_explosion_j_per_g: float = 0.0
     specific_impulse_s: float = 0.0
     gas_volume_l_per_kg: float = 0.0
+    compressibility_z: float = 1.0
     converged: bool = False
     iterations: int = 0

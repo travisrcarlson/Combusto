@@ -65,8 +65,9 @@ def _gibbs_objective(
     T: float,
     P: float,
     scale: float,
+    real_gas_fugacity: bool = False,
 ) -> float:
-    """Compute total Gibbs free energy (scaled)."""
+    """Compute total Gibbs free energy (scaled), with optional BLAKE/Virial fugacity."""
     n = n_vec * scale
     n = np.maximum(n, 1e-30)
     n_total_gas = sum(
@@ -74,6 +75,9 @@ def _gibbs_objective(
     )
     if n_total_gas < 1e-30:
         n_total_gas = 1e-30
+
+    p_pa = P * 101325.0
+    rt = R_GAS * T
 
     G_total = 0.0
     for i, sp in enumerate(small_species):
@@ -83,7 +87,12 @@ def _gibbs_objective(
         G0 = gibbs(sp, T, 1.0)
         if sp.phase == "gas":
             x_i = ni / n_total_gas
-            mu_i = G0 + R_GAS * T * math.log(max(x_i * P, 1e-30))
+            mu_i = G0 + rt * math.log(max(x_i * P, 1e-30))
+            if real_gas_fugacity and P > 1.0 and sp.molar_covolume_cm3_mol > 0.0:
+                # Truncated 2nd-Virial / Noble-Abel fugacity: ln(phi_i) = b_i * P / (R * T)
+                b_i_m3 = sp.molar_covolume_cm3_mol * 1e-6
+                ln_phi_i = min((b_i_m3 * p_pa) / max(rt, 1.0), 4.0)
+                mu_i += rt * ln_phi_i
         else:
             mu_i = G0
         G_total += ni * mu_i
@@ -175,7 +184,10 @@ def solve_equilibrium(
 
     # --- Gibbs minimization ---
     def objective(n_vec):
-        return _gibbs_objective(n_vec, small_species, T, P, scale)
+        return _gibbs_objective(
+            n_vec, small_species, T, P, scale,
+            real_gas_fugacity=conditions.real_gas_fugacity,
+        )
 
     def constraint_fun(n_vec):
         return A @ n_vec - b_scaled
@@ -197,6 +209,29 @@ def solve_equilibrium(
         constraints=constraints,
         options={"maxiter": 2000, "ftol": 1e-14},
     )
+    err_first = float(np.max(np.abs(A @ result.x - b_scaled)))
+    if not result.success:
+        for x_init in (np.maximum(result.x, 1e-20 / scale), n0_scaled):
+            result_retry = minimize(
+                objective,
+                x_init,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=constraints,
+                options={"maxiter": 1500, "ftol": 1e-11},
+            )
+            err_retry = float(np.max(np.abs(A @ result_retry.x - b_scaled)))
+            if err_retry <= 1e-7:
+                if err_first > 1e-7 or _gibbs_objective(
+                    result_retry.x, small_species, T, P, scale,
+                    real_gas_fugacity=conditions.real_gas_fugacity,
+                ) < _gibbs_objective(
+                    result.x, small_species, T, P, scale,
+                    real_gas_fugacity=conditions.real_gas_fugacity,
+                ):
+                    result = result_retry
+                    err_first = err_retry
+                    break
 
     n_eq = np.maximum(result.x * scale, 0.0)
 
@@ -339,8 +374,9 @@ def solve_equilibrium(
     force_constant = gas_moles_total * R_GAS * t_v
     isobaric_force = gas_moles_total * R_GAS * t_ad
 
-    # --- Isochoric pressure via Noble-Abel EOS ---
+    # --- Isochoric pressure & Compressibility Z via Noble-Abel / Virial EOS ---
     computed_pressure_atm = 0.0
+    compressibility_z = 1.0
     if conditions.mode == "isochoric" and conditions.loading_density is not None:
         v_per_gram = 1.0 / conditions.loading_density * 1e-6  # m³ per gram
         if abs(conditions.covolume_m3_per_mol - 1.0e-3) > 1e-9:
@@ -351,8 +387,13 @@ def solve_equilibrium(
         if denominator > 0:
             p_pa = gas_moles_total * R_GAS * t_v / denominator
             computed_pressure_atm = p_pa / 101325.0
+            compressibility_z = v_per_gram / denominator
         else:
             computed_pressure_atm = float("inf")
+            compressibility_z = float("inf")
+    elif conditions.real_gas_fugacity and gas_moles_total > 0 and T > 0:
+        b_mix_m3_mol = (covolume_cm3_per_g * 1e-6) / gas_moles_total
+        compressibility_z = 1.0 + (b_mix_m3_mol * P * 101325.0) / (R_GAS * T)
 
     # --- Standard Energetic Metrics ---
     # Gas volume V0 (L/kg at standard 273.15K, 1 atm)
@@ -412,6 +453,7 @@ def solve_equilibrium(
         heat_of_explosion_j_per_g=heat_of_explosion_j_per_g,
         specific_impulse_s=specific_impulse_s,
         gas_volume_l_per_kg=gas_volume_l_per_kg,
+        compressibility_z=compressibility_z,
     )
 
 
@@ -442,6 +484,7 @@ def solve_equilibrium_adiabatic(
         inert_gas=conditions.inert_gas,
         inert_moles=conditions.inert_moles,
         covolume_m3_per_mol=conditions.covolume_m3_per_mol,
+        real_gas_fugacity=conditions.real_gas_fugacity,
     )
 
     for iteration in range(1, max_iter + 1):

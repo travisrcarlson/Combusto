@@ -567,8 +567,9 @@ def render_benchmarks_and_grounding_tab() -> None:
     st.caption("Click below to run Combusto's Gibbs minimization & Noble-Abel solver live across all 8 canonical reference propellants.")
 
     if st.button("▶ Run Live 8-Propellant Reference Benchmark Suite", type="primary", key="btn_run_benchmarks"):
+        from .cache_helpers import cached_benchmark_validation_suite
         with st.spinner("Solving self-consistent Gibbs equilibrium across M1, M6, M9, JA2, M30, WC844, M43, and TP-H1148..."):
-            st.session_state["bm_suite_out"] = run_benchmark_validation_suite(st.session_state.species_db)
+            st.session_state["bm_suite_out"] = cached_benchmark_validation_suite(st.session_state.species_db)
 
     if "bm_suite_out" in st.session_state:
         bm_out = st.session_state["bm_suite_out"]
