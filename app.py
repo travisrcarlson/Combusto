@@ -793,8 +793,8 @@ with st.expander(f"⚙️ Formulation Editor ({formulation.name})", expanded=Tru
                 st.error(str(e))
 
 st.markdown("<br>", unsafe_allow_html=True)
-tab2, tab3, tab_cal, tab_perf, tab4, tab_ballistics, tab_flash, tab_opt, tab5 = st.tabs([
-    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "Internal Ballistics & Erosion", "Muzzle Flash & Plume", "Optimizer & Ternary", "VoD Estimator"
+tab2, tab3, tab_cal, tab_perf, tab4, tab_ballistics, tab_cv, tab_flash, tab_tox, tab_stab, tab_opt, tab5 = st.tabs([
+    "Conditions & Run", "Results", "Isothermal Calorimetry (Qv)", "Isentropic Expansion (Isp)", "Sensitivity", "Internal Ballistics & Erosion", "Closed-Vessel & Vivacity", "Muzzle Flash & Plume", "Smoke & Range Toxicity", "Shelf-Life & Thermal Safety", "Optimizer & Ternary", "VoD Estimator"
 ])
 
 # ===== Tab 2: Conditions & Run =====
@@ -1204,6 +1204,7 @@ with tab_perf:
                 )
                 if res_perf.converged:
                     st.success("Calculation complete.")
+                    st.session_state["res_perf_cached"] = res_perf
                     
                     gamma = res_perf.gamma
                     mean_mw_kg = res_perf.mean_molecular_weight / 1000.0
@@ -1226,6 +1227,9 @@ with tab_perf:
                     m4.metric("Gas Volume V_0 (L/kg)", f"{res_perf.gas_volume_l_per_kg:.1f}")
                 else:
                     st.error("Adiabatic flame temperature failed to converge.")
+
+    from combusto.ui_extensions import render_noble_abel_isentrope_section
+    render_noble_abel_isentrope_section(formulation, conditions, pah_config, eq_temp)
 
 # ===== Tab 4: Sensitivity Analysis =====
 with tab4:
@@ -1932,6 +1936,21 @@ with tab_opt:
                 height=560,
             )
             st.plotly_chart(fig_tern, use_container_width=True)
+
+# ===== Tab_CV: Closed-Vessel & Vivacity =====
+with tab_cv:
+    from combusto.ui_extensions import render_closed_vessel_tab
+    render_closed_vessel_tab(formulation)
+
+# ===== Tab_Tox: Plume Smoke & Range Toxicity =====
+with tab_tox:
+    from combusto.ui_extensions import render_smoke_toxicity_tab
+    render_smoke_toxicity_tab(formulation, conditions, pah_config, eq_temp)
+
+# ===== Tab_Stab: Propellant Shelf-Life & Thermal Safety =====
+with tab_stab:
+    from combusto.ui_extensions import render_stability_tab
+    render_stability_tab(formulation)
 
 # ===== Tab 5: VoD Estimator =====
 with tab5:

@@ -1,8 +1,12 @@
-"""Tests for the new Combusto enhancements:
+"""Tests for the new Combusto enhancements (Wave 1 & Wave 2):
 - Multi-perforated interior ballistics, 2D grain cross-section, and barrel erosion
 - Muzzle flash and afterburning plume predictor
 - Multi-objective formulation optimizer and ternary simplex grid
 - 2D sensitivity sweeps and PDF report generation
+- Closed-vessel manometric bomb vivacity and Vieille burn-rate calibration
+- Propellant thermal stability, STANAG 4582 shelf-life, and Frank-Kamenetskii cook-off
+- Noble-Abel real-gas vs ideal polytropic expansion isentropes
+- Tactical plume smoke obscuration (AGARD / STANAG 4400) and range toxicity (OSHA / NIOSH)
 """
 
 from __future__ import annotations
@@ -14,6 +18,10 @@ from combusto.ballistics import (
     generate_grain_cross_section,
     grain_form_function,
     simulate_ballistics,
+)
+from combusto.closed_vessel import (
+    calibrate_abel_eos_and_burn_rate,
+    simulate_closed_vessel,
 )
 from combusto.equilibrium import solve_equilibrium
 from combusto.export_pdf import export_result_pdf
@@ -27,6 +35,9 @@ from combusto.optimizer import compute_ternary_grid, optimize_formulation
 from combusto.pah_allocation import PRESETS
 from combusto.sensitivity import sweep_2d
 from combusto.species_db import load_species_db
+from combusto.stability import analyze_thermal_stability, detect_stabilizer_wt_pct
+from combusto.thermo_cycles import compute_expansion_isentrope
+from combusto.toxicity_smoke import analyze_toxicity_and_smoke
 
 
 def _sample_double_base() -> Formulation:
@@ -155,3 +166,91 @@ def test_sweep_2d_and_pdf_export():
     res = solve_equilibrium(form, cond, PRESETS["moderate"], db, 2500.0)
     pdf_bytes = export_result_pdf(res, form)
     assert len(pdf_bytes) > 50
+
+
+def test_closed_vessel_vivacity_and_abel_calibration():
+    cv = simulate_closed_vessel(
+        force_constant_j_per_g=1080.0,
+        covolume_cm3_per_g=1.02,
+        propellant_density_g_per_cm3=1.60,
+        loading_density_g_per_cm3=0.20,
+        burn_rate_a=1.40,
+        burn_rate_n=0.86,
+        web_thickness_mm=1.2,
+        grain_geometry="7_perf",
+    )
+    assert cv["p_max_mpa"] > 200.0
+    assert cv["mean_vivacity_30_70"] > 0.0
+    assert len(cv["trace_df"]) > 20
+
+    # Fit Abel EOS & Vieille law from synthetic shots
+    deltas = np.array([0.10, 0.15, 0.20, 0.25])
+    f_true = 1080.0
+    eta_true = 1.02
+    p_maxs = (f_true * deltas) / (1.0 - eta_true * deltas)
+    p_grid = np.linspace(30.0, 250.0, 15)
+    r_grid = 1.40 * (p_grid ** 0.86)
+
+    cal = calibrate_abel_eos_and_burn_rate(deltas, p_maxs, p_grid, r_grid)
+    assert abs(cal["fitted_F_j_per_g"] - f_true) < 5.0
+    assert abs(cal["fitted_covolume_cm3_per_g"] - eta_true) < 0.05
+    assert abs(cal["fitted_a_mm_s_mpa_n"] - 1.40) < 0.05
+    assert abs(cal["fitted_n"] - 0.86) < 0.02
+
+
+def test_thermal_stability_stanag_4582_and_cookoff():
+    form = _sample_double_base()
+    stab_pct = detect_stabilizer_wt_pct(form)
+    assert abs(stab_pct - 4.0) < 0.1
+
+    stab = analyze_thermal_stability(
+        formulation=form,
+        stabilizer_wt_pct=2.0,
+        storage_temp_c=30.0,
+        activation_energy_kj_mol=135.0,
+        charge_diameter_mm=120.0,
+    )
+    assert stab["safe_shelf_life_years"] > 5.0
+    assert stab["stanag_4582_compliant"] is True
+    assert stab["critical_cookoff_temp_c"] > 80.0
+    assert len(stab["depletion_df"]) > 50
+
+
+def test_noble_abel_expansion_isentrope():
+    db = load_species_db()
+    form = _sample_double_base()
+    cond = CombustionConditions(temperature_k=2800.0, pressure_atm=100.0, mode="isobaric")
+    res = solve_equilibrium(form, cond, PRESETS["moderate"], db, 2800.0)
+
+    cycle = compute_expansion_isentrope(
+        result=res,
+        initial_loading_density_g_cm3=0.25,
+        covolume_cm3_per_g=1.05,
+        max_expansion_ratio=15.0,
+    )
+    df_iso = cycle["isentrope_df"]
+    assert cycle["p0_noble_abel_mpa"] > cycle["p0_ideal_gas_mpa"]
+    assert cycle["z0_compressibility"] > 1.2
+    assert float(df_iso["cumulative_work_noble_j_g"].iloc[-1]) > float(df_iso["cumulative_work_ideal_j_g"].iloc[-1])
+    assert len(df_iso) == 100
+
+
+def test_smoke_obscuration_and_range_toxicity():
+    db = load_species_db()
+    form = _sample_double_base()
+    cond = CombustionConditions(temperature_k=2500.0, pressure_atm=100.0, mode="isobaric")
+    res = solve_equilibrium(form, cond, PRESETS["moderate"], db, 2500.0)
+
+    tox = analyze_toxicity_and_smoke(
+        result=res,
+        charge_mass_g=30.0,
+        rounds_fired=20,
+        enclosure_volume_m3=50.0,
+        air_changes_per_hour=4.0,
+        ambient_temp_c=15.0,
+        relative_humidity_pct=85.0,
+    )
+    assert tox["max_hazard_quotient"] > 0.0
+    assert "Class " in tox["agard_smoke_class"]
+    assert len(tox["tox_df"]) >= 5
+    assert tox["smoke_matrix"].shape == (19, 25)
