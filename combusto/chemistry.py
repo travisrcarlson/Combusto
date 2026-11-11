@@ -7,45 +7,73 @@ from typing import Dict
 from .models import ATOMIC_MASSES, Formulation
 
 
-def oxygen_balance(formulation: Formulation) -> float:
-    """Compute oxygen balance (OB%) for a propellant formulation.
+# Stoichiometric O-atom equivalents per mole of electropositive/fuel element
+# (valence / 2, corresponding to full oxidation to CO2, H2O, SO2, Al2O3, MgO, K2O, etc.)
+_REDUCING_O_EQUIV: Dict[str, float] = {
+    "C": 2.0,
+    "H": 0.5,
+    "S": 2.0,
+    "Al": 1.5,
+    "B": 1.5,
+    "Li": 0.5,
+    "Na": 0.5,
+    "K": 0.5,
+    "Be": 1.0,
+    "Mg": 1.0,
+    "Ca": 1.0,
+    "Ba": 1.0,
+    "Zn": 1.0,
+    "Cu": 1.0,
+    "Pb": 1.0,
+    "Fe": 1.5,
+    "Bi": 1.5,
+    "Si": 2.0,
+    "Ti": 2.0,
+    "Sn": 2.0,
+    "P": 2.5,
+    "W": 3.0,
+}
 
-    OB% = -1600 * (2*C + H/2 + 2*S + M_metal_valence/2 - O) / MW_formula
-    Simplified version assuming full oxidation to CO2, H2O.
-    Returns OB% per gram of propellant (using elemental moles per gram).
-    """
+# Oxidizing O-atom equivalents per mole of electronegative/oxidizer element
+# O (-2) = 1.0 O-equiv; Cl/F (-1, forming HCl/HF or metal halides) = 0.5 O-equiv
+_OXIDIZING_O_EQUIV: Dict[str, float] = {
+    "O": 1.0,
+    "Cl": 0.5,
+    "F": 0.5,
+}
+
+
+def _valence_o_equivalents(formulation: Formulation) -> tuple[float, float]:
+    """Return (reducing_o_needed, oxidizing_o_available) in mol-O equivalents per gram."""
     elem = formulation.elemental_composition()
-    c = elem.get("C", 0.0)
-    h = elem.get("H", 0.0)
-    o = elem.get("O", 0.0)
-    s = elem.get("S", 0.0)
-    al = elem.get("Al", 0.0)
-    # Oxygen needed for full oxidation: C->CO2 (2O per C), H->H2O (0.5O per H),
-    # S->SO2 (2O per S), Al->Al2O3 (1.5O per Al)
-    o_needed = 2.0 * c + 0.5 * h + 2.0 * s + 1.5 * al
-    o_excess = o - o_needed  # mol O per gram propellant
-    # Convert to mass: o_excess * 16 g/mol, per 1 g propellant => * 100 for %
-    ob_pct = o_excess * ATOMIC_MASSES["O"] * 100.0
-    return ob_pct
+    v_fuel = sum(moles * _REDUCING_O_EQUIV.get(el, 0.0) for el, moles in elem.items())
+    v_ox = sum(moles * _OXIDIZING_O_EQUIV.get(el, 0.0) for el, moles in elem.items())
+    return v_fuel, v_ox
+
+
+def oxygen_balance(formulation: Formulation) -> float:
+    """Compute stoichiometric Oxygen Balance (OB%) for a propellant formulation.
+
+    Accounts for C->CO2, H->H2O/HX, S->SO2, metals/alkalis->oxides/halides, and
+    halogen oxidizers (Cl, F) per Meyer 'Explosives' / ICT / NATO STANAG convention.
+    For example, Ammonium Perchlorate (NH4ClO4 -> 0.5 N2 + HCl + 1.5 H2O + 1.25 O2)
+    yields exact textbook OB% = +34.04%, and inert oxides (Al2O3, MgO, Fe2O3, CaCO3) yield 0.0%.
+    """
+    o_needed, o_avail = _valence_o_equivalents(formulation)
+    o_excess = o_avail - o_needed  # net mol O equivalents per gram propellant
+    return o_excess * ATOMIC_MASSES["O"] * 100.0
 
 
 def equivalence_ratio(formulation: Formulation) -> float:
-    """Compute fuel-oxidizer equivalence ratio (phi).
+    """Compute fuel-oxidizer equivalence ratio (phi = V+ / V-).
 
-    phi = (fuel/oxidizer)_actual / (fuel/oxidizer)_stoichiometric
-    For a propellant (self-oxidizing), phi = O_needed / O_available.
-    phi > 1 means fuel-rich, phi < 1 means oxygen-rich.
+    Follows NASA CEA (RP-1311) generalized oxidizing/reducing valence ratio:
+    phi > 1 means fuel-rich, phi = 1 stoichiometric, phi < 1 oxidizer-rich.
     """
-    elem = formulation.elemental_composition()
-    c = elem.get("C", 0.0)
-    h = elem.get("H", 0.0)
-    o = elem.get("O", 0.0)
-    s = elem.get("S", 0.0)
-    al = elem.get("Al", 0.0)
-    o_needed = 2.0 * c + 0.5 * h + 2.0 * s + 1.5 * al
-    if o == 0:
-        return float("inf")
-    return o_needed / o
+    v_fuel, v_ox = _valence_o_equivalents(formulation)
+    if v_ox <= 0.0:
+        return float("inf") if v_fuel > 0.0 else 0.0
+    return v_fuel / v_ox
 
 
 def element_balance_check(

@@ -123,16 +123,18 @@ def analyze_toxicity_and_smoke(
     bap_teq_conc_ug_m3 = (bap_teq_ug_per_g * total_prop_mass_g) / effective_vol_m3
 
     # Primary & Secondary Smoke Index (NATO STANAG 4400 / AGARD methodology)
-    # 1. Primary Smoke: solid particulates (Soot C(s), PAHs, Al2O3, PbO, CuO, Fe2O3)
-    solid_particulate_mf = (
-        result.species_mass_fractions.get("C(s)", 0.0)
-        + result.species_mass_fractions.get("soot_precursor", 0.0)
-        + result.species_mass_fractions.get("Al2O3", 0.0)
-        + result.species_mass_fractions.get("PbO", 0.0)
-        + result.species_mass_fractions.get("CuO", 0.0)
-        + result.species_mass_fractions.get("Fe2O3", 0.0)
-        + (total_pah_mg_per_g / 1000.0)
+    # 1. Primary Smoke: solid particulates (graphite C(gr), soot, PAHs, condensed metal oxides/salts,
+    #    plus high-T alkali/boron/metal vapors like KOH, KCl, NaOH, HBO2 that nucleate into solid
+    #    salt/oxide aerosol upon plume cooling to ambient — capturing the K2SO4/KNO3 flash-vs-smoke tradeoff)
+    _PRIMARY_PARTICULATE_SPECIES = (
+        "C(gr)", "C(s)", "soot_C", "soot_precursor",
+        "Al2O3", "MgO", "B2O3", "Fe2O3", "CuO", "PbO",
+        "CaO", "CaCO3", "BaO", "K2CO3", "K2SO4", "Na2CO3",
+        "KOH", "KCl", "KF", "NaOH", "HBO2", "AlF3",
     )
+    solid_particulate_mf = sum(
+        result.species_mass_fractions.get(sp_n, 0.0) for sp_n in _PRIMARY_PARTICULATE_SPECIES
+    ) + (total_pah_mg_per_g / 1000.0)
     primary_smoke_g_per_kg = solid_particulate_mf * 1000.0
 
     # 2. Secondary Smoke: H2O + HCl/HF vapor condensation upon cooling into humid air

@@ -18,7 +18,7 @@ cd path/to/Combusto_Pro_Desktop
 ```bash
 pip install -r requirements.txt
 ```
-*(Or manually: `pip install streamlit numpy scipy pandas openpyxl plotly reportlab toml requests`)*
+*(Or manually: `pip install streamlit numpy scipy pandas openpyxl plotly reportlab pytest`)*
 
 **Step 3:** Launch the Desktop Pro application using Streamlit:
 ```bash

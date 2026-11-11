@@ -25,23 +25,62 @@ def _get_coeffs(species: Species, T: float) -> List[float]:
     return species.thermo_high
 
 
-def cp_over_r(species: Species, T: float) -> float:
-    """Cp/R at temperature T."""
-    a = _get_coeffs(species, T)
+def _poly_cp_over_r(a: List[float], T: float) -> float:
     return a[0] + a[1]*T + a[2]*T**2 + a[3]*T**3 + a[4]*T**4
 
 
-def h_over_rt(species: Species, T: float) -> float:
-    """H/(RT) at temperature T."""
-    a = _get_coeffs(species, T)
+def _poly_h_over_rt(a: List[float], T: float) -> float:
     return a[0] + a[1]*T/2 + a[2]*T**2/3 + a[3]*T**3/4 + a[4]*T**4/5 + a[5]/T
 
 
-def s_over_r(species: Species, T: float) -> float:
-    """S/R at temperature T."""
-    a = _get_coeffs(species, T)
+def _poly_s_over_r(a: List[float], T: float) -> float:
     return (a[0]*math.log(T) + a[1]*T + a[2]*T**2/2 +
-            a[3]*T**3/3 + a[4]*T**4/4 + a[6])
+            a[3]*T**3/3 + a[4]*T**3*T/4 + a[6])
+
+
+def cp_over_r(species: Species, T: float) -> float:
+    """Cp/R at temperature T, with NASA CEA constant-Cp clamping outside [t_low, t_high]."""
+    t_clamped = min(max(T, species.t_low), species.t_high)
+    a = _get_coeffs(species, t_clamped)
+    return _poly_cp_over_r(a, t_clamped)
+
+
+def h_over_rt(species: Species, T: float) -> float:
+    """H/(RT) at temperature T, with C1-continuous linear enthalpy extrapolation outside [t_low, t_high]."""
+    t_safe = max(T, 50.0)
+    if t_safe > species.t_high:
+        t_b = species.t_high
+        a_b = _get_coeffs(species, t_b)
+        h_b_over_r = _poly_h_over_rt(a_b, t_b) * t_b
+        cp_b_over_r = _poly_cp_over_r(a_b, t_b)
+        return (h_b_over_r + cp_b_over_r * (t_safe - t_b)) / t_safe
+    if t_safe < species.t_low:
+        t_b = species.t_low
+        a_b = _get_coeffs(species, t_b)
+        h_b_over_r = _poly_h_over_rt(a_b, t_b) * t_b
+        cp_b_over_r = _poly_cp_over_r(a_b, t_b)
+        return (h_b_over_r + cp_b_over_r * (t_safe - t_b)) / t_safe
+    a = _get_coeffs(species, t_safe)
+    return _poly_h_over_rt(a, t_safe)
+
+
+def s_over_r(species: Species, T: float) -> float:
+    """S/R at temperature T, with C1-continuous logarithmic entropy extrapolation outside [t_low, t_high]."""
+    t_safe = max(T, 50.0)
+    if t_safe > species.t_high:
+        t_b = species.t_high
+        a_b = _get_coeffs(species, t_b)
+        s_b_over_r = _poly_s_over_r(a_b, t_b)
+        cp_b_over_r = _poly_cp_over_r(a_b, t_b)
+        return s_b_over_r + cp_b_over_r * math.log(t_safe / t_b)
+    if t_safe < species.t_low:
+        t_b = species.t_low
+        a_b = _get_coeffs(species, t_b)
+        s_b_over_r = _poly_s_over_r(a_b, t_b)
+        cp_b_over_r = _poly_cp_over_r(a_b, t_b)
+        return s_b_over_r + cp_b_over_r * math.log(t_safe / t_b)
+    a = _get_coeffs(species, t_safe)
+    return _poly_s_over_r(a, t_safe)
 
 
 def cp(species: Species, T: float) -> float:

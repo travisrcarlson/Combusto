@@ -116,8 +116,12 @@ def solve_equilibrium(
     if conditions.mode == "bomb_calorimeter":
         T = 298.15
 
-    # --- Step 1: Elemental composition (mol per gram propellant) ---
-    elem_per_gram = formulation.elemental_composition()
+    # --- Step 1: Elemental composition (mol per gram propellant + optional inert gas) ---
+    elem_per_gram = dict(formulation.elemental_composition())
+    inert_moles_eff = max(0.0, float(conditions.inert_moles or 0.0))
+    if conditions.inert_gas and inert_moles_eff > 0.0:
+        for el, cnt in parse_formula(conditions.inert_gas).items():
+            elem_per_gram[el] = elem_per_gram.get(el, 0.0) + cnt * inert_moles_eff
 
     # --- Step 2: Equivalence ratio ---
     phi = equivalence_ratio(formulation)
@@ -182,14 +186,41 @@ def solve_equilibrium(
     A_scaled = A  # A is dimensionless (atom counts)
     n0_scaled = _find_feasible_start(A_scaled, b_scaled, n_sp)
 
-    # --- Gibbs minimization ---
-    def objective(n_vec):
-        return _gibbs_objective(
-            n_vec, small_species, T, P, scale,
-            real_gas_fugacity=conditions.real_gas_fugacity,
-        )
+    # --- Vectorized Gibbs minimization with exact analytical Gibbs-Duhem Jacobian ---
+    rt = max(R_GAS * T, 1.0)
+    p_pa = P * 101325.0
+    is_gas = np.array([sp.phase == "gas" for sp in small_species], dtype=bool)
+    g0_over_rt = np.array([gibbs(sp, T, 1.0) / rt for sp in small_species], dtype=float)
+    fug_ln_phi = np.zeros(n_sp, dtype=float)
+    if conditions.real_gas_fugacity and P > 1.0:
+        for i, sp in enumerate(small_species):
+            if sp.phase == "gas" and sp.molar_covolume_cm3_mol > 0.0:
+                b_i_m3 = sp.molar_covolume_cm3_mol * 1e-6
+                fug_ln_phi[i] = min((b_i_m3 * p_pa) / rt, 4.0)
+    mu0_over_rt = g0_over_rt + fug_ln_phi
 
-    def constraint_fun(n_vec):
+    def _reduced_gibbs_and_grad(n_vec: np.ndarray):
+        """Return dimensionless G / (scale * RT) and exact Gibbs-Duhem gradient mu / RT."""
+        n_clamped = np.maximum(n_vec, 1e-30 / scale)
+        n_gas_scaled = float(np.sum(n_clamped[is_gas]))
+        if n_gas_scaled < 1e-30 / scale:
+            n_gas_scaled = 1e-30 / scale
+
+        mu_red = mu0_over_rt.copy()
+        if np.any(is_gas):
+            x_gas = n_clamped[is_gas] / n_gas_scaled
+            mu_red[is_gas] += np.log(np.maximum(x_gas * P, 1e-30))
+
+        g_red = float(np.dot(n_clamped, mu_red))
+        return g_red, mu_red
+
+    def objective(n_vec: np.ndarray) -> float:
+        return _reduced_gibbs_and_grad(n_vec)[0]
+
+    def objective_jac(n_vec: np.ndarray) -> np.ndarray:
+        return _reduced_gibbs_and_grad(n_vec)[1]
+
+    def constraint_fun(n_vec: np.ndarray) -> np.ndarray:
         return A @ n_vec - b_scaled
 
     constraints = {
@@ -200,35 +231,31 @@ def solve_equilibrium(
 
     bounds = [(1e-20 / scale, None)] * n_sp
 
-    # Try SLSQP with the feasible start
+    # Solve SLSQP with analytical Jacobian
     result = minimize(
         objective,
         n0_scaled,
+        jac=objective_jac,
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
-        options={"maxiter": 2000, "ftol": 1e-14},
+        options={"maxiter": 600, "ftol": 1e-12},
     )
     err_first = float(np.max(np.abs(A @ result.x - b_scaled)))
-    if not result.success:
+    if not result.success or err_first > 1e-7:
         for x_init in (np.maximum(result.x, 1e-20 / scale), n0_scaled):
             result_retry = minimize(
                 objective,
                 x_init,
+                jac=objective_jac,
                 method="SLSQP",
                 bounds=bounds,
                 constraints=constraints,
-                options={"maxiter": 1500, "ftol": 1e-11},
+                options={"maxiter": 800, "ftol": 1e-10},
             )
             err_retry = float(np.max(np.abs(A @ result_retry.x - b_scaled)))
             if err_retry <= 1e-7:
-                if err_first > 1e-7 or _gibbs_objective(
-                    result_retry.x, small_species, T, P, scale,
-                    real_gas_fugacity=conditions.real_gas_fugacity,
-                ) < _gibbs_objective(
-                    result.x, small_species, T, P, scale,
-                    real_gas_fugacity=conditions.real_gas_fugacity,
-                ):
+                if err_first > 1e-7 or objective(result_retry.x) < objective(result.x):
                     result = result_retry
                     err_first = err_retry
                     break
@@ -319,6 +346,17 @@ def solve_equilibrium(
     for comp in formulation.components:
         moles_comp = comp.mass_fraction / comp.mw
         h_react += moles_comp * comp.hf_298 * 1000.0  # J per gram propellant
+
+    # Solid propellant initial grain sensible enthalpy shift relative to 298.15 K
+    t_init_grain = float(conditions.temperature_k) if conditions.temperature_k is not None else 298.15
+    if conditions.mode != "bomb_calorimeter" and 180.0 <= t_init_grain <= 550.0 and abs(t_init_grain - 298.15) > 0.5:
+        c_solid_j_g_k = 1.35
+        h_react += c_solid_j_g_k * (t_init_grain - 298.15)
+
+    # Optional inert purge/pressurant gas enthalpy at initial temperature
+    if conditions.inert_gas and inert_moles_eff > 0.0 and conditions.inert_gas in species_db:
+        t_inert = t_init_grain if 180.0 <= t_init_grain <= 550.0 else 298.15
+        h_react += inert_moles_eff * enthalpy(species_db[conditions.inert_gas], t_inert)
 
     # Convert reactant enthalpy/internal-energy from J/g_propellant to J/mol_product_mixture
     h_react_per_mol_prod = h_react / total_moles if total_moles > 0 else 0.0

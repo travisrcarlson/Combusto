@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import math
-import re as _re
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -33,6 +32,12 @@ from .cache_helpers import (
     cached_solve_equilibrium_adiabatic,
 )
 from .chemistry import equivalence_ratio, oxygen_balance
+from .detonation import (
+    VOD_PRESETS,
+    formulation_kj_inputs,
+    kamlet_jacobs,
+    parse_chno_formula,
+)
 from .export import (
     carbon_distribution_to_dataframe,
     element_balance_to_dataframe,
@@ -48,6 +53,7 @@ from .models import (
     Formulation,
     PAHAllocationConfig,
     PropellantComponent,
+    parse_formula,
 )
 from .muzzle_flash import analyze_muzzle_flash
 from .optimizer import compute_ternary_grid, optimize_formulation
@@ -68,9 +74,11 @@ from .sensitivity import (
     sweep_temperature,
 )
 from .species_db import load_species_db
-from .stability import analyze_thermal_stability, detect_stabilizer_wt_pct
+from .stability import analyze_thermal_stability
 from .toxicity_smoke import analyze_toxicity_and_smoke
 from .ui_extensions import (
+    get_formulation_suite,
+    rename_formulation_state,
     render_benchmarks_and_grounding_tab,
     render_closed_vessel_tab,
     render_nc_nitration_calculator,
@@ -292,109 +300,6 @@ def check_web_password() -> bool:
     return True
 
 
-_VOD_PRESETS: Dict[str, Optional[Dict[str, Any]]] = {
-    "Custom": None,
-    "TNT  (C₇H₅N₃O₆)": dict(formula="C7H5N3O6", hf_kJ=-66.9, rho_tmd=1.654),
-    "RDX  (C₃H₆N₆O₆)": dict(formula="C3H6N6O6", hf_kJ=92.6, rho_tmd=1.806),
-    "HMX  (C₄H₈N₈O₈)": dict(formula="C4H8N8O8", hf_kJ=74.4, rho_tmd=1.906),
-    "PETN (C₅H₈N₄O₁₂)": dict(formula="C5H8N4O12", hf_kJ=-538.5, rho_tmd=1.778),
-    "TATB (C₆H₆N₆O₆)": dict(formula="C6H6N6O6", hf_kJ=-154.0, rho_tmd=1.937),
-    "Tetryl (C₇H₅N₅O₈)": dict(formula="C7H5N5O8", hf_kJ=-38.9, rho_tmd=1.730),
-    "NQ / Nitroguanidine (CH₄N₄O₂)": dict(formula="CH4N4O2", hf_kJ=-90.4, rho_tmd=1.715),
-    "FOX-7 (C₂H₄N₄O₄)": dict(formula="C2H4N4O4", hf_kJ=-133.4, rho_tmd=1.885),
-    "DINA  (C₄H₈N₂O₆)": dict(formula="C4H8N2O6", hf_kJ=-392.0, rho_tmd=1.490),
-}
-
-_AW = {
-    "C": 12.011, "H": 1.008, "N": 14.007, "O": 15.999,
-    "S": 32.06, "K": 39.098, "NA": 22.990, "CU": 63.546,
-    "FE": 55.845, "AL": 26.982, "PB": 207.2, "CR": 51.996,
-    "MN": 54.938, "BA": 137.33, "SR": 87.62, "CA": 40.078,
-    "CL": 35.45, "F": 18.998, "B": 10.81, "SI": 28.085,
-    "P": 30.974, "ZN": 65.38, "NI": 58.693, "MG": 24.305,
-}
-
-
-def _parse_chno(formula: str):
-    counts = {"C": 0.0, "H": 0.0, "N": 0.0, "O": 0.0}
-    for m in _re.finditer(r"([CHNO])(\d+\.?\d*)?", formula.upper()):
-        el = m.group(1)
-        counts[el] += float(m.group(2)) if m.group(2) else 1.0
-    return counts["C"], counts["H"], counts["N"], counts["O"]
-
-
-def _formula_mw_general(formula: str) -> float:
-    mw = 0.0
-    for m in _re.finditer(r"([A-Z][a-z]?)(\d+\.?\d*)?", formula):
-        el = m.group(1).upper()
-        cnt = float(m.group(2)) if m.group(2) else 1.0
-        mw += _AW.get(el, 0.0) * cnt
-    return mw
-
-
-def _formulation_kj_inputs(form: Formulation):
-    try:
-        elem = form.elemental_composition()
-    except Exception:
-        return None, "Could not compute elemental composition."
-    a, b, c, d = elem.get("C", 0.0), elem.get("H", 0.0), elem.get("N", 0.0), elem.get("O", 0.0)
-    if a + b + c + d < 1e-9:
-        return None, "Elemental composition is zero — check formulation components."
-    hf_per_g = 0.0
-    for comp in form.components:
-        mw_comp = _formula_mw_general(comp.formula)
-        if mw_comp > 0:
-            hf_per_g += comp.mass_fraction * comp.hf_298 / mw_comp
-    return dict(a=a, b=b, c=c, d=d, mw=1.0, hf_kJ=hf_per_g), None
-
-
-def _kamlet_jacobs(a: float, b: float, c: float, d: float, mw: float, hf_kJ_per_mol: float, rho: float) -> Dict[str, Any]:
-    HF_H2O, HF_CO2, HF_CO = -57_800.0, -94_050.0, -26_420.0
-    hf_cal = hf_kJ_per_mol * 1000.0 / 4.184
-    n_N2 = c / 2.0
-    n_H2O = b / 2.0
-    O_rem = d - n_H2O
-    if O_rem >= 2 * a:
-        n_CO2, n_CO, n_Cs, n_O2 = a, 0.0, 0.0, (O_rem - 2 * a) / 2.0
-    elif O_rem >= a:
-        n_CO2, n_CO, n_Cs, n_O2 = O_rem - a, 2 * a - O_rem, 0.0, 0.0
-    elif O_rem >= 0:
-        n_CO2, n_CO, n_Cs, n_O2 = 0.0, O_rem, a - O_rem, 0.0
-    else:
-        n_H2O = max(0.0, d)
-        n_CO2, n_CO, n_Cs, n_O2 = 0.0, 0.0, a, 0.0
-
-    gas_mol = n_N2 + n_H2O + n_CO2 + n_CO + n_O2
-    N = gas_mol / mw
-    M_avg = (28 * n_N2 + 18 * n_H2O + 44 * n_CO2 + 28 * n_CO + 32 * n_O2) / gas_mol if gas_mol > 0 else 28.0
-    Q = (hf_cal - (n_CO2 * HF_CO2 + n_H2O * HF_H2O + n_CO * HF_CO)) / mw
-
-    base_info = dict(
-        N=N, M_avg=M_avg, Q_cal_per_g=Q,
-        n_N2=n_N2, n_H2O=n_H2O, n_CO2=n_CO2, n_CO=n_CO, n_Cs=n_Cs, n_O2=n_O2,
-        OB_pct=(d - 2 * a - b / 2) / mw * 1600,
-    )
-    if Q <= 0:
-        return dict(valid=False, **base_info)
-
-    phi = N * (M_avg ** 0.5) * (Q ** 0.5)
-    D = 1.01 * (phi ** 0.5) * (1 + 1.30 * rho)
-    P = 15.58 * (rho ** 2) * phi
-    gamma = 3.0
-    return dict(
-        valid=True,
-        D_km_s=D, P_GPa=P, phi=phi,
-        N_mol_per_g=N, M_avg_g_per_mol=M_avg,
-        Q_cal_per_g=Q, Q_kJ_per_g=Q * 4.184 / 1000.0,
-        rho_CJ=rho * (gamma + 1) / gamma,
-        u_CJ=D / (gamma + 1),
-        c_CJ=D * gamma / (gamma + 1),
-        T_CJ_K=(Q * 4.184) / max(N * 30.0, 1e-6),
-        dD_drho=1.01 * 1.30 * (phi ** 0.5),
-        **base_info,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Session Initialization & Shared Formulation Bar
 # ---------------------------------------------------------------------------
@@ -409,6 +314,8 @@ def _ensure_session_state() -> None:
         st.session_state.compare_idx = None
     if "results" not in st.session_state:
         st.session_state.results = {}
+    if "suite_cache" not in st.session_state:
+        st.session_state.suite_cache = {}
     if "species_db" not in st.session_state:
         st.session_state.species_db = load_species_db()
     if "active_conditions" not in st.session_state:
@@ -542,14 +449,18 @@ def _render_formulation_manager(
             - Use the **Empirical Ingredient Database Search** (48 grounded ingredients with CAS numbers) or the **Nitrocellulose %N Continuum Synthesizer** (MIL-DTL-244C).
             """)
         col_name, col_desc = st.columns([1, 2])
+        old_name = formulation.name
         with col_name:
-            formulation.name = st.text_input(
+            new_name = st.text_input(
                 "Formulation name", value=formulation.name, key=f"form_name_{st.session_state.selected_idx}"
             )
         with col_desc:
             formulation.description = st.text_input(
                 "Description", value=formulation.description, key=f"form_desc_{st.session_state.selected_idx}"
             )
+        if new_name != old_name:
+            rename_formulation_state(old_name, new_name)
+            formulation.name = new_name
         st.session_state.formulations[st.session_state.selected_idx] = formulation
 
         st.markdown("**Empirical Ingredient Database Search (48 Grounded Energetics, Binders & Stabilizers)**")
@@ -656,16 +567,17 @@ def _render_formulation_manager(
 # Workspace 1: Passport & Thermochemistry
 # ---------------------------------------------------------------------------
 
-def _collect_suite_data() -> Dict[str, Any]:
+def _collect_suite_data(form_name: str) -> Dict[str, Any]:
+    suite = get_formulation_suite(form_name)
     return {
-        "nozzle_out": st.session_state.get("nozzle_out"),
-        "ib_out": st.session_state.get("ib_out"),
-        "ero_out": st.session_state.get("ero_out"),
-        "climatic_out": st.session_state.get("climatic_out"),
-        "mc_out": st.session_state.get("mc_out"),
-        "mf_out": st.session_state.get("mf_out"),
-        "tox_out": st.session_state.get("tox_out"),
-        "stab_out": st.session_state.get("stab_out"),
+        "nozzle_out": suite.get("nozzle_out"),
+        "ib_out": suite.get("ib_out"),
+        "ero_out": suite.get("ero_out"),
+        "climatic_out": suite.get("climatic_out"),
+        "mc_out": suite.get("mc_out"),
+        "mf_out": suite.get("mf_out"),
+        "tox_out": suite.get("tox_out"),
+        "stab_out": suite.get("stab_out"),
     }
 
 
@@ -677,6 +589,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
         "🚀 Nozzle Isp (Shifting vs Frozen) & Calorimetry",
     ])
 
+    suite = get_formulation_suite(formulation.name)
     conditions: CombustionConditions = st.session_state["active_conditions"]
     pah_config: PAHAllocationConfig = st.session_state["active_pah_config"]
     eq_temp: float = st.session_state["active_eq_temp"]
@@ -713,12 +626,12 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         formulation, pass_cond, pah_config, st.session_state.species_db, 2600.0
                     )
                     st.session_state.results[formulation.name] = res_p
-                    st.session_state["result"] = res_p
 
                     noz_p = cached_analyze_nozzle_expansion(
                         formulation, 68.0, 1.0, 1.0, PRESETS["none"], st.session_state.species_db, 8
                     )
-                    st.session_state["nozzle_out"] = noz_p
+                    suite["nozzle_out"] = noz_p
+                    suite["res_perf_cached"] = noz_p["chamber_result"]
 
                     f_val = res_p.force_constant_j_per_g if res_p.force_constant_j_per_g > 50 else 1050.0
                     gam_val = res_p.gamma if res_p.gamma > 1.02 else 1.23
@@ -732,8 +645,8 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
                     )
                     ero_p = estimate_barrel_erosion(ib_p, res_p, bore_diameter_mm=30.0, charge_mass_g=50.0)
-                    st.session_state["ib_out"] = ib_p
-                    st.session_state["ero_out"] = ero_p
+                    suite["ib_out"] = ib_p
+                    suite["ero_out"] = ero_p
 
                     clim_p = simulate_climatic_zones(
                         force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
@@ -742,7 +655,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         grain_geometry="7_perf", chamber_volume_cm3=65.0,
                         bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
                     )
-                    st.session_state["climatic_out"] = clim_p
+                    suite["climatic_out"] = clim_p
 
                     mc_p = run_monte_carlo_ballistics(
                         force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
@@ -752,22 +665,23 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
                         n_trials=80,
                     )
-                    st.session_state["mc_out"] = mc_p
+                    suite["mc_out"] = mc_p
 
-                    mf_p = analyze_muzzle_flash(res_p, formulation, expansion_ratio=12.0, muzzle_mach=2.4, suppressant_wt_pct=0.5)
-                    st.session_state["mf_out"] = mf_p
+                    mf_p = analyze_muzzle_flash(
+                        res_p, formulation, expansion_ratio=12.0, muzzle_mach=2.4, suppressant_wt_pct=None
+                    )
+                    suite["mf_out"] = mf_p
 
                     tox_p = analyze_toxicity_and_smoke(res_p, charge_mass_g=45.0, rounds_fired=5, enclosure_volume_m3=120.0)
-                    st.session_state["tox_out"] = tox_p
+                    suite["tox_out"] = tox_p
 
-                    stab_wt = detect_stabilizer_wt_pct(formulation)
-                    stab_p = analyze_thermal_stability(formulation, storage_temp_c=25.0, stabilizer_wt_pct=max(stab_wt, 1.5))
-                    st.session_state["stab_out"] = stab_p
+                    stab_p = analyze_thermal_stability(formulation, storage_temp_c=25.0, stabilizer_wt_pct=None)
+                    suite["stab_out"] = stab_p
 
-            res_cur = st.session_state.results.get(formulation.name) or st.session_state.get("result")
+            res_cur = st.session_state.results.get(formulation.name)
             with p_act2:
                 if res_cur is not None:
-                    dossier_bytes = export_full_dossier_pdf(res_cur, formulation, _collect_suite_data())
+                    dossier_bytes = export_full_dossier_pdf(res_cur, formulation, _collect_suite_data(formulation.name))
                     st.download_button(
                         "📄 Download Full Multi-Suite Engineering Dossier (PDF)",
                         data=dossier_bytes,
@@ -779,14 +693,14 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
             if res_cur is None:
                 st.info("Click **⚡ Run Complete Multi-Suite Passport & Characterization** above (or run an equilibrium solve) to populate the Executive Passport.")
             else:
-                noz = st.session_state.get("nozzle_out")
-                ib = st.session_state.get("ib_out")
-                ero = st.session_state.get("ero_out")
-                clim = st.session_state.get("climatic_out")
-                mc = st.session_state.get("mc_out")
-                mf = st.session_state.get("mf_out")
-                tox = st.session_state.get("tox_out")
-                stab = st.session_state.get("stab_out")
+                noz = suite.get("nozzle_out")
+                ib = suite.get("ib_out")
+                ero = suite.get("ero_out")
+                clim = suite.get("climatic_out")
+                mc = suite.get("mc_out")
+                mf = suite.get("mf_out")
+                tox = suite.get("tox_out")
+                stab = suite.get("stab_out")
 
                 r1c1, r1c2, r1c3, r1c4 = st.columns(4)
                 r1c1.metric("Closed-Vessel Temp Tv", f"{res_cur.isochoric_flame_temp_k:.0f} K", delta=f"Tp = {res_cur.adiabatic_flame_temp_k:.0f} K", delta_color="off")
@@ -943,6 +857,29 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     1e-5, 1e-2, float(conditions.covolume_m3_per_mol), 1e-4, format="%.4f", key="cond_cov",
                 )
 
+        with st.expander("🌬️ Optional Chamber Inert Purge / Pressurant Gas", expanded=False):
+            ic_g1, ic_g2 = st.columns(2)
+            inert_opts = ["None", "N2", "Ar", "He", "CO2"]
+            cur_inert = conditions.inert_gas if conditions.inert_gas in inert_opts else "None"
+            with ic_g1:
+                inert_choice = st.selectbox(
+                    "Inert / Pressurant Gas Species",
+                    inert_opts,
+                    index=inert_opts.index(cur_inert),
+                    key="cond_inert_gas",
+                )
+            with ic_g2:
+                inert_moles_val = st.number_input(
+                    "Inert Gas Moles (mol / g propellant)",
+                    0.0,
+                    0.50,
+                    float(conditions.inert_moles),
+                    0.001,
+                    format="%.4f",
+                    disabled=(inert_choice == "None"),
+                    key="cond_inert_moles",
+                )
+
         st.divider()
         st.subheader("PAH / Soot Carbon Allocation Model")
         col_pah1, col_pah2 = st.columns([1, 2])
@@ -978,6 +915,8 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
             mode="isochoric" if mode == "isochoric" else "isobaric",
             loading_density=loading_density,
             covolume_m3_per_mol=covolume,
+            inert_gas=None if inert_choice == "None" else inert_choice,
+            inert_moles=0.0 if inert_choice == "None" else float(inert_moles_val),
             real_gas_fugacity=real_gas_fug,
         )
         st.session_state["active_conditions"] = conditions
@@ -1009,7 +948,6 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         st.success("Equilibrium calculation complete!")
 
                     st.session_state.results[formulation.name] = result
-                    st.session_state["result"] = result
 
                     if st.session_state.compare_idx is not None:
                         comp_form = st.session_state.formulations[st.session_state.compare_idx]
@@ -1136,7 +1074,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
             }, indent=2)
             ex3.download_button("JSON Bundle", json_str, file_name=f"combusto_{active_name.replace(' ', '_')}.json", mime="application/json", use_container_width=True)
             ex4.download_button("📄 Lab Summary PDF", export_result_pdf(result, formulation), file_name=f"combusto_{active_name.replace(' ', '_')}_lab.pdf", mime="application/pdf", use_container_width=True)
-            ex5.download_button("📘 Full Dossier PDF", export_full_dossier_pdf(result, formulation, _collect_suite_data()), file_name=f"combusto_{active_name.replace(' ', '_')}_dossier.pdf", mime="application/pdf", use_container_width=True)
+            ex5.download_button("📘 Full Dossier PDF", export_full_dossier_pdf(result, formulation, _collect_suite_data(active_name)), file_name=f"combusto_{active_name.replace(' ', '_')}_dossier.pdf", mime="application/pdf", use_container_width=True)
 
     # --- Sub-tab 4: Nozzle Isp (Shifting vs Frozen) & Calorimetry ---
     with sub_noz:
@@ -1167,11 +1105,11 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         species_db=st.session_state.species_db,
                         n_profile_points=12,
                     )
-                    st.session_state["nozzle_out"] = noz_out
-                    st.session_state["res_perf_cached"] = noz_out["chamber_result"]
+                    suite["nozzle_out"] = noz_out
+                    suite["res_perf_cached"] = noz_out["chamber_result"]
 
-        if "nozzle_out" in st.session_state:
-            noz = st.session_state["nozzle_out"]
+        if "nozzle_out" in suite:
+            noz = suite["nozzle_out"]
             fz, sh = noz["frozen"], noz["shifting"]
 
             nm1, nm2, nm3, nm4 = st.columns(4)
@@ -1233,9 +1171,9 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                 res_cal = cached_solve_equilibrium(
                     formulation, cal_cond, PRESETS["moderate"], st.session_state.species_db, 298.15
                 )
-                st.session_state["res_cal_298"] = res_cal
-        if "res_cal_298" in st.session_state:
-            rc = st.session_state["res_cal_298"]
+                suite["res_cal_298"] = res_cal
+        if "res_cal_298" in suite:
+            rc = suite["res_cal_298"]
             cc1, cc2 = st.columns(2)
             cc1.metric("Calorimetric Heat of Explosion Qv (H₂O liq)", f"{rc.heat_of_explosion_j_per_g:.0f} J/g")
             cc2.metric("Permanent Gas Moles at 298.15 K", f"{rc.gas_moles_total:.5f} mol/g")
@@ -1254,10 +1192,14 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
         "💥 VoD Detonation Screening",
     ])
 
-    res_cur = st.session_state.results.get(formulation.name) or st.session_state.get("result")
+    suite = get_formulation_suite(formulation.name)
+    res_cur = st.session_state.results.get(formulation.name)
     default_F = float(res_cur.force_constant_j_per_g) if (res_cur and res_cur.force_constant_j_per_g > 0) else 1050.0
     default_gamma = float(res_cur.gamma) if (res_cur and res_cur.gamma > 1.0) else 1.24
     default_eta = float(round(res_cur.covolume_cm3_per_g, 3)) if (res_cur and getattr(res_cur, "covolume_cm3_per_g", 0.0) > 0.3) else 1.00
+    f_key = f"ib_F_{formulation.name}"
+    gam_key = f"ib_gamma_{formulation.name}"
+    eta_key = f"ib_covol_{formulation.name}"
 
     # --- Sub-tab 1: Interior Ballistics & Erosion ---
     with sub_ib:
@@ -1268,11 +1210,11 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             col_b1, col_b2, col_b3 = st.columns(3)
             with col_b1:
                 st.markdown("**Propellant & Real-Gas EOS**")
-                ib_F = st.number_input("Force Constant F (J/g)", 100.0, 2500.0, default_F, 10.0, key="ib_F")
-                ib_gamma = st.number_input("Specific Heat Ratio γ", 1.05, 1.67, default_gamma, 0.01, key="ib_gamma")
+                ib_F = st.number_input("Force Constant F (J/g)", 100.0, 2500.0, default_F, 10.0, key=f_key)
+                ib_gamma = st.number_input("Specific Heat Ratio γ", 1.05, 1.67, default_gamma, 0.01, key=gam_key)
                 ib_charge_g = st.number_input("Charge Mass (g)", 0.5, 50000.0, 50.0, 1.0, key="ib_charge")
                 ib_rho_p = st.number_input("Propellant Solid Density (g/cm³)", 0.8, 2.2, 1.60, 0.05, key="ib_rhop")
-                ib_covol = st.number_input("Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.4, 2.0, default_eta, 0.02, key="ib_covol")
+                ib_covol = st.number_input("Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.4, 2.0, default_eta, 0.02, key=eta_key)
             with col_b2:
                 st.markdown("**Burn Rate & Multi-Perf Geometry**")
                 geom_labels = {
@@ -1336,11 +1278,11 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                         projectile_mass_g=ib_mproj_g, start_pressure_mpa=ib_pstart_mpa,
                     )
                     ero_out = estimate_barrel_erosion(ib_out, res_cur, bore_diameter_mm=ib_bore_mm, charge_mass_g=ib_charge_g)
-                    st.session_state["ib_out"] = ib_out
-                    st.session_state["ero_out"] = ero_out
+                    suite["ib_out"] = ib_out
+                    suite["ero_out"] = ero_out
 
-            if "ib_out" in st.session_state:
-                ib_out = st.session_state["ib_out"]
+            if "ib_out" in suite:
+                ib_out = suite["ib_out"]
                 m_ib1, m_ib2, m_ib3, m_ib4 = st.columns(4)
                 m_ib1.metric("Peak Chamber Pressure", f"{ib_out['max_pressure_mpa']:.1f} MPa")
                 m_ib2.metric("Muzzle Velocity", f"{ib_out['muzzle_velocity_m_s']:.1f} m/s")
@@ -1362,8 +1304,8 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     fig_ib2.update_layout(title="Projectile Velocity & Pressure vs Barrel Travel", xaxis_title="Travel (m)", yaxis=dict(title="Velocity (m/s)"), yaxis2=dict(title="Pressure (MPa)", overlaying="y", side="right"), height=390)
                     st.plotly_chart(fig_ib2, use_container_width=True)
 
-                if "ero_out" in st.session_state:
-                    ero_out = st.session_state["ero_out"]
+                if "ero_out" in suite:
+                    ero_out = suite["ero_out"]
                     st.divider()
                     st.markdown("### 🔥 Barrel Thermal Erosion & Wear Life Assessment")
                     st.info(f"**Erosion Regime:** {ero_out['erosion_regime']}")
@@ -1400,11 +1342,11 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             tol_a = st.slider("Lot Burn-Rate a 1σ Variation (±%)", 0.2, 5.0, 1.50, 0.2, key="mc_tola")
             tol_n = st.slider("MIL-DTL-244C NC Nitration 1σ (±%N)", 0.01, 0.20, 0.05, 0.01, key="mc_toln")
 
-        b_F = float(st.session_state.get("ib_F", default_F))
-        b_gam = float(st.session_state.get("ib_gamma", default_gamma))
+        b_F = float(st.session_state.get(f_key, default_F))
+        b_gam = float(st.session_state.get(gam_key, default_gamma))
         b_chg = float(st.session_state.get("ib_charge", 50.0))
         b_rho = float(st.session_state.get("ib_rhop", 1.60))
-        b_eta = float(st.session_state.get("ib_covol", default_eta))
+        b_eta = float(st.session_state.get(eta_key, default_eta))
         b_geom = str(st.session_state.get("ib_geom", "7_perf"))
         b_web = float(st.session_state.get("ib_web", 1.20))
         b_a = float(st.session_state.get("ib_a", 1.20))
@@ -1417,7 +1359,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
 
         if st.button("▶ Run STANAG 2895 Climatic & Monte Carlo Dispersion Suite", type="primary", key="btn_run_clim_mc"):
             with st.spinner(f"Simulating 5 STANAG 2895 climatic zones and {mc_trials} stochastic Monte Carlo firing trials..."):
-                st.session_state["climatic_out"] = simulate_climatic_zones(
+                suite["climatic_out"] = simulate_climatic_zones(
                     force_constant_j_per_g=b_F, gamma=b_gam, charge_mass_g=b_chg,
                     propellant_density_g_per_cm3=b_rho, covolume_cm3_per_g=b_eta,
                     burn_rate_a=b_a, burn_rate_n=b_n, web_thickness_mm=b_web,
@@ -1426,7 +1368,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     projectile_mass_g=b_mp, start_pressure_mpa=b_ps,
                     sigma_p_per_k=sigma_p, service_limit_mpa=srv_lim, proof_limit_mpa=prf_lim,
                 )
-                st.session_state["mc_out"] = run_monte_carlo_ballistics(
+                suite["mc_out"] = run_monte_carlo_ballistics(
                     force_constant_j_per_g=b_F, gamma=b_gam, charge_mass_g=b_chg,
                     propellant_density_g_per_cm3=b_rho, covolume_cm3_per_g=b_eta,
                     burn_rate_a=b_a, burn_rate_n=b_n, web_thickness_mm=b_web,
@@ -1439,8 +1381,8 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     service_limit_mpa=srv_lim, proof_limit_mpa=prf_lim,
                 )
 
-        if "climatic_out" in st.session_state:
-            clim = st.session_state["climatic_out"]
+        if "climatic_out" in suite:
+            clim = suite["climatic_out"]
             if clim["passes_stanag_2895"]:
                 st.success(f"✅ **STANAG 2895 Qualification PASS:** Extreme Hot Desert (+63 °C) P_max = **{clim['hot_pmax_mpa']:.1f} MPa** (Margin to Proof: **{clim['hot_safety_margin_to_proof_mpa']:+.1f} MPa**)")
             else:
@@ -1463,8 +1405,8 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             fig_cl.update_layout(title="NATO STANAG 2895 Breech Pressure P(t) Across Climatic Conditioning Zones", xaxis_title="Time (ms)", yaxis_title="Breech Pressure (MPa)", height=390)
             st.plotly_chart(fig_cl, use_container_width=True)
 
-        if "mc_out" in st.session_state:
-            mc = st.session_state["mc_out"]
+        if "mc_out" in suite:
+            mc = suite["mc_out"]
             st.divider()
             st.markdown(f"### 🎲 Monte Carlo Lot-to-Lot Ballistic Dispersion ({mc['n_trials']} Simulated Rounds)")
             mm1, mm2, mm3, mm4 = st.columns(4)
@@ -1511,13 +1453,14 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             ["🧪 Active Formulation", "📋 Preset / Custom Explosive"],
             horizontal=True, key="vod_source", label_visibility="collapsed",
         )
-        if vod_source.startswith("🧪"):
+        is_form_vod = vod_source.startswith("🧪")
+        if is_form_vod:
             if not formulation.components:
                 st.warning("Add ingredients in the Formulation Editor first.")
             else:
-                fkj, fkj_err = _formulation_kj_inputs(formulation)
-                if fkj_err:
-                    st.error(fkj_err)
+                fkj, fkj_err = formulation_kj_inputs(formulation)
+                if fkj_err or fkj is None:
+                    st.error(fkj_err or "Invalid CHNO composition.")
                 else:
                     ic1, ic2, ic3, ic4, ic5 = st.columns(5)
                     ic1.metric("C (mol/g)", f"{fkj['a']:.5f}")
@@ -1532,15 +1475,15 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     with dc2:
                         fvod_tmd = st.number_input("Plot up to TMD (g/cm³)", 0.5, 2.5, 1.85, 0.05, format="%.3f", key="fvod_tmd")
                     if st.button("▶ Estimate VoD from Active Formulation", type="primary", key="fvod_run"):
-                        res_v = _kamlet_jacobs(fkj["a"], fkj["b"], fkj["c"], fkj["d"], fkj["mw"], fkj["hf_kJ"], fvod_rho)
-                        st.session_state["vod_result"] = res_v
-                        st.session_state["vod_inputs"] = dict(
+                        res_v = kamlet_jacobs(fkj["a"], fkj["b"], fkj["c"], fkj["d"], fkj["mw"], fkj["hf_kJ"], fvod_rho)
+                        suite["vod_result"] = res_v
+                        suite["vod_inputs"] = dict(
                             formula=f"C{fkj['a']:.4f}H{fkj['b']:.4f}N{fkj['c']:.4f}O{fkj['d']:.4f}",
                             a=fkj["a"], b=fkj["b"], c=fkj["c"], d=fkj["d"], mw=1.0, hf_kJ=fkj["hf_kJ"], rho=fvod_rho, rho_tmd=fvod_tmd,
                         )
         else:
-            preset_name = st.selectbox("Preset Explosive", list(_VOD_PRESETS.keys()), key="vod_preset")
-            preset = _VOD_PRESETS[preset_name]
+            preset_name = st.selectbox("Preset Explosive", list(VOD_PRESETS.keys()), key="vod_preset")
+            preset = VOD_PRESETS[preset_name]
             vc1, vc2, vc3, vc4 = st.columns([1.2, 1, 1, 1])
             with vc1:
                 vod_formula = st.text_input("Molecular Formula (CHNO)", value=preset["formula"] if preset else "C7H5N3O6", key="vod_formula")
@@ -1551,28 +1494,30 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             with vc4:
                 vod_rho = st.number_input("Loading Density ρ₀ (g/cm³)", 0.1, float(vod_tmd), round(float(vod_tmd) * 0.95, 3), 0.01, format="%.3f", key="vod_rho")
             if st.button("▶ Estimate VoD", type="primary", key="vod_run"):
-                a, b, c, d = _parse_chno(vod_formula)
+                a, b, c, d = parse_chno_formula(vod_formula)
                 mw = a * 12.011 + b * 1.008 + c * 14.007 + d * 15.999
                 if mw < 1.0:
                     st.error("Could not parse CHNO formula.")
                 else:
-                    st.session_state["vod_result"] = _kamlet_jacobs(a, b, c, d, mw, vod_hf, vod_rho)
-                    st.session_state["vod_inputs"] = dict(formula=vod_formula, a=a, b=b, c=c, d=d, mw=mw, hf_kJ=vod_hf, rho=vod_rho, rho_tmd=vod_tmd)
+                    st.session_state["vod_preset_result"] = kamlet_jacobs(a, b, c, d, mw, vod_hf, vod_rho)
+                    st.session_state["vod_preset_inputs"] = dict(
+                        formula=vod_formula, a=a, b=b, c=c, d=d, mw=mw, hf_kJ=vod_hf, rho=vod_rho, rho_tmd=vod_tmd
+                    )
 
-        if "vod_result" in st.session_state and "vod_inputs" in st.session_state:
-            rv = st.session_state["vod_result"]
-            inp = st.session_state["vod_inputs"]
+        rv = suite.get("vod_result") if is_form_vod else st.session_state.get("vod_preset_result")
+        inp = suite.get("vod_inputs") if is_form_vod else st.session_state.get("vod_preset_inputs")
+        if rv is not None and inp is not None:
             if not rv["valid"]:
                 st.error(f"Heat of detonation Q = {rv['Q_cal_per_g']:.1f} cal/g ≤ 0 — composition does not support KJ detonation.")
             else:
                 km1, km2, km3, km4 = st.columns(4)
                 km1.metric("Detonation Velocity VoD", f"{rv['D_km_s']:.3f} km/s")
-                km2.metric("CJ Detonation Pressure P_CJ", f"{rv['P_GPa']:.2f} GPa")
+                km2.metric("CJ Detonation Pressure P_CJ", f"{rv['P_GPa']:.2f} GPa", delta=f"{rv['P_kbar']:.0f} kbar", delta_color="off")
                 km3.metric("Heat of Detonation Q_det", f"{rv['Q_kJ_per_g']:.2f} kJ/g")
-                km4.metric("Kamlet-Jacobs φ", f"{rv['phi']:.4f}")
+                km4.metric("Kamlet-Jacobs Φ", f"{rv['phi']:.4f}")
 
                 rho_arr = np.linspace(0.5, max(inp["rho_tmd"], inp["rho"] + 0.01), 80)
-                d_arr = [_kamlet_jacobs(inp["a"], inp["b"], inp["c"], inp["d"], inp["mw"], inp["hf_kJ"], float(r))["D_km_s"] for r in rho_arr]
+                d_arr = [kamlet_jacobs(inp["a"], inp["b"], inp["c"], inp["d"], inp["mw"], inp["hf_kJ"], float(r))["D_km_s"] for r in rho_arr]
                 fig_dd = go.Figure()
                 fig_dd.add_trace(go.Scatter(x=rho_arr, y=d_arr, mode="lines", name="D(ρ) — Kamlet-Jacobs", line=dict(color="#ff5566", width=2.5)))
                 fig_dd.add_trace(go.Scatter(x=[inp["rho"]], y=[rv["D_km_s"]], mode="markers", marker=dict(size=12, color="#ffffff", line=dict(color="#ff5566", width=2.5)), name=f"ρ₀ = {inp['rho']:.3f} g/cm³"))
@@ -1589,6 +1534,7 @@ def _render_workspace_signature_hygiene(formulation: Formulation) -> None:
         "✨ Muzzle Flash & Alkali Suppression",
         "🌫️ Plume Smoke (STANAG 4400) & Range Toxicity",
     ])
+    suite = get_formulation_suite(formulation.name)
     conditions: CombustionConditions = st.session_state["active_conditions"]
     pah_config: PAHAllocationConfig = st.session_state["active_pah_config"]
     eq_temp: float = st.session_state["active_eq_temp"]
@@ -1598,23 +1544,36 @@ def _render_workspace_signature_hygiene(formulation: Formulation) -> None:
         if not formulation.components:
             st.info("Define a formulation first.")
         else:
+            inferred_supp = 0.0
+            for comp in formulation.components:
+                atoms = parse_formula(comp.formula)
+                if "K" in atoms or "Na" in atoms or "k2so4" in comp.name.lower() or "kno3" in comp.name.lower():
+                    inferred_supp += comp.mass_fraction * 100.0
+            default_supp = float(min(5.0, max(0.0, round(inferred_supp, 1))))
+
             mf_c1, mf_c2, mf_c3 = st.columns(3)
             with mf_c1:
                 mf_exp_ratio = st.slider("Barrel Volumetric Expansion Ratio (V_barrel / Vc)", 2.0, 35.0, 12.0, 0.5, key="mf_expr")
             with mf_c2:
                 mf_mach = st.slider("Muzzle Exhaust Jet Mach Number", 1.2, 4.0, 2.4, 0.1, key="mf_mach")
             with mf_c3:
-                mf_supp = st.slider("Alkali Flash Suppressant Salt (K₂SO₄ / KNO₃ wt%)", 0.0, 5.0, 0.5, 0.1, key="mf_supp")
+                mf_supp = st.slider(
+                    "Alkali Flash Suppressant Salt (K₂SO₄ / KNO₃ wt%)",
+                    0.0,
+                    5.0,
+                    default_supp,
+                    0.1,
+                    key=f"mf_supp_{formulation.name}",
+                )
 
             if st.button("▶ Run Muzzle Flash & Plume Afterburning Analysis", type="primary", key="btn_run_mf"):
-                res_for_mf = st.session_state.results.get(formulation.name) or st.session_state.get("result")
+                res_for_mf = st.session_state.results.get(formulation.name)
                 if res_for_mf is None:
                     res_for_mf = cached_solve_equilibrium_adiabatic(
                         formulation, conditions, pah_config, st.session_state.species_db, 2500.0
                     )
-                    st.session_state["result"] = res_for_mf
                     st.session_state.results[formulation.name] = res_for_mf
-                st.session_state["mf_out"] = analyze_muzzle_flash(
+                suite["mf_out"] = analyze_muzzle_flash(
                     result=res_for_mf,
                     formulation=formulation,
                     expansion_ratio=mf_exp_ratio,
@@ -1622,8 +1581,8 @@ def _render_workspace_signature_hygiene(formulation: Formulation) -> None:
                     suppressant_wt_pct=mf_supp,
                 )
 
-            if "mf_out" in st.session_state:
-                mf_out = st.session_state["mf_out"]
+            if "mf_out" in suite:
+                mf_out = suite["mf_out"]
                 status_str = mf_out["flash_status"]
                 if status_str.startswith("HIGH"):
                     st.error(f"**Flash Prediction:** {status_str}")
@@ -1666,6 +1625,7 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
         "📈 1D & 2D Sensitivity Sweeps",
         "⏳ STANAG 4582 Shelf-Life & Cook-Off",
     ])
+    suite = get_formulation_suite(formulation.name)
     conditions: CombustionConditions = st.session_state["active_conditions"]
     pah_config: PAHAllocationConfig = st.session_state["active_pah_config"]
     eq_temp: float = st.session_state["active_eq_temp"]
@@ -1692,7 +1652,7 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
 
             if st.button("▶ Run Constrained Formulation Optimizer", type="primary", key="btn_run_opt"):
                 with st.spinner("Optimizing ingredient mass fractions via SLSQP..."):
-                    st.session_state["opt_res"] = optimize_formulation(
+                    suite["opt_res"] = optimize_formulation(
                         base_formulation=formulation,
                         conditions=conditions,
                         pah_config=pah_config,
@@ -1703,8 +1663,8 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                         equilibrium_temp_k=eq_temp,
                     )
 
-            if "opt_res" in st.session_state:
-                opt_res = st.session_state["opt_res"]
+            if "opt_res" in suite:
+                opt_res = suite["opt_res"]
                 b_res, o_res = opt_res["baseline_result"], opt_res["optimized_result"]
                 oc1, oc2, oc3, oc4 = st.columns(4)
                 oc1.metric("Impetus F", f"{o_res.force_constant_j_per_g:.1f} J/g", delta=f"{o_res.force_constant_j_per_g - b_res.force_constant_j_per_g:+.1f} J/g")
@@ -1717,7 +1677,6 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
 
                 if st.button("✨ Apply Optimized Mass Fractions to Active Formulation", key="btn_apply_opt"):
                     st.session_state.formulations[st.session_state.selected_idx] = opt_res["optimized_formulation"]
-                    st.session_state["result"] = o_res
                     st.session_state.results[opt_res["optimized_formulation"].name] = o_res
                     st.rerun()
 
@@ -1749,17 +1708,17 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                     st.error("Select 3 distinct components for Apex A, B, and C.")
                 else:
                     with st.spinner("Solving equilibrium across 3-component simplex grid..."):
-                        st.session_state["ternary_df"] = compute_ternary_grid(
+                        suite["ternary_df"] = compute_ternary_grid(
                             formulation.components[idx_a], formulation.components[idx_b], formulation.components[idx_c],
                             conditions, pah_config, st.session_state.species_db, n_steps=8, equilibrium_temp_k=eq_temp,
                         )
-                        st.session_state["ternary_labels"] = (
+                        suite["ternary_labels"] = (
                             formulation.components[idx_a].name, formulation.components[idx_b].name, formulation.components[idx_c].name
                         )
 
-            if "ternary_df" in st.session_state:
-                t_df = st.session_state["ternary_df"]
-                lbl_a, lbl_b, lbl_c = st.session_state.get("ternary_labels", ("A", "B", "C"))
+            if "ternary_df" in suite:
+                t_df = suite["ternary_df"]
+                lbl_a, lbl_b, lbl_c = suite.get("ternary_labels", ("A", "B", "C"))
                 met_label = tern_metric_map[tern_metric]
                 fig_tern = go.Figure(go.Scatterternary({
                     "mode": "markers",
@@ -1831,31 +1790,31 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
             if st.button("▶ Run Parametric Sweep", type="primary", key="btn_run_sens"):
                 with st.spinner("Running parametric equilibrium sweep..."):
                     if analysis_type == "Equivalence ratio sweep":
-                        st.session_state["sensitivity_df"] = sweep_equivalence_ratio(formulation, conditions, pah_config, st.session_state.species_db, eq_temp, np.linspace(0.5, 3.0, 25))
-                        st.session_state["sensitivity_type"] = "phi"
+                        suite["sensitivity_df"] = sweep_equivalence_ratio(formulation, conditions, pah_config, st.session_state.species_db, eq_temp, np.linspace(0.5, 3.0, 25))
+                        suite["sensitivity_type"] = "phi"
                     elif analysis_type == "Temperature sweep":
-                        st.session_state["sensitivity_df"] = sweep_temperature(formulation, conditions, pah_config, st.session_state.species_db, np.linspace(1000, 4500, 25))
-                        st.session_state["sensitivity_type"] = "temp"
+                        suite["sensitivity_df"] = sweep_temperature(formulation, conditions, pah_config, st.session_state.species_db, np.linspace(1000, 4500, 25))
+                        suite["sensitivity_type"] = "temp"
                     elif analysis_type == "PAH model comparison":
-                        st.session_state["sensitivity_df"] = sweep_pah_models(formulation, conditions, st.session_state.species_db, eq_temp)
-                        st.session_state["sensitivity_type"] = "pah"
+                        suite["sensitivity_df"] = sweep_pah_models(formulation, conditions, st.session_state.species_db, eq_temp)
+                        suite["sensitivity_type"] = "pah"
                     elif analysis_type == "Multi-formulation comparison":
-                        st.session_state["sensitivity_df"] = compare_formulations(st.session_state.formulations, conditions, pah_config, st.session_state.species_db, eq_temp)
-                        st.session_state["sensitivity_type"] = "multi"
+                        suite["sensitivity_df"] = compare_formulations(st.session_state.formulations, conditions, pah_config, st.session_state.species_db, eq_temp)
+                        suite["sensitivity_type"] = "multi"
                     else:
-                        st.session_state["sensitivity_df"] = sweep_2d(
+                        suite["sensitivity_df"] = sweep_2d(
                             formulation, conditions, pah_config, st.session_state.species_db,
                             v1_name, np.linspace(v1_min, v1_max, 10), v2_name, np.linspace(v2_min, v2_max, 10),
                         )
-                        st.session_state["sensitivity_type"] = "sweep2d"
-                        st.session_state["sa2d_v1_name"] = v1_name
-                        st.session_state["sa2d_v2_name"] = v2_name
-                        st.session_state["sa2d_metric"] = selected_metric
-                        st.session_state["sa2d_metric_label"] = selected_metric_label
+                        suite["sensitivity_type"] = "sweep2d"
+                        suite["sa2d_v1_name"] = v1_name
+                        suite["sa2d_v2_name"] = v2_name
+                        suite["sa2d_metric_col"] = selected_metric
+                        suite["sa2d_metric_label"] = selected_metric_label
 
-            if "sensitivity_df" in st.session_state:
-                df = st.session_state["sensitivity_df"]
-                stype = st.session_state["sensitivity_type"]
+            if "sensitivity_df" in suite:
+                df = suite["sensitivity_df"]
+                stype = suite["sensitivity_type"]
                 if stype == "phi":
                     g1, g2 = st.columns(2)
                     with g1:
@@ -1892,10 +1851,10 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                     fig.update_layout(xaxis_tickangle=-35, height=430)
                     st.plotly_chart(fig, use_container_width=True)
                 elif stype == "sweep2d":
-                    v1_n = st.session_state.get("sa2d_v1_name", "param1")
-                    v2_n = st.session_state.get("sa2d_v2_name", "param2")
-                    met = st.session_state.get("sa2d_metric", "adiabatic_flame_temp_k")
-                    met_lbl = st.session_state.get("sa2d_metric_label", "Value")
+                    v1_n = suite.get("sa2d_v1_name", "param1")
+                    v2_n = suite.get("sa2d_v2_name", "param2")
+                    met = suite.get("sa2d_metric_col", "adiabatic_flame_temp_k")
+                    met_lbl = suite.get("sa2d_metric_label", "Value")
                     x_vals = sorted(df[f"param_{v1_n}"].unique())
                     y_vals = sorted(df[f"param_{v2_n}"].unique())
                     z_grid = np.zeros((len(y_vals), len(x_vals)))

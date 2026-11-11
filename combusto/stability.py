@@ -93,9 +93,9 @@ def analyze_thermal_stability(
     # Combined zero-order + autocatalytic first-order effective depletion rate (wt% / year)
     rate_pct_per_year = k_298_pct_per_year * accel_factor
 
-    # NATO STANAG 4582 safe limit: maximum 50% depletion of initial stabilizer,
+    # NATO STANAG 4582 / AOP-48 safe limit: maximum 50% depletion of initial stabilizer,
     # or minimum 0.20 wt% remaining before surveillance condemnation
-    critical_remaining_pct = max(0.20, 0.20 * stabilizer_wt_pct)
+    critical_remaining_pct = max(0.20, 0.50 * stabilizer_wt_pct)
     usable_stab_pct = max(0.0, stabilizer_wt_pct - critical_remaining_pct)
 
     safe_shelf_life_years = usable_stab_pct / max(rate_pct_per_year, 1e-9)

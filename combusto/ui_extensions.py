@@ -9,17 +9,39 @@ Provides modular rendering functions shared by both `app.py` and `app_local.py` 
 
 from __future__ import annotations
 
+from typing import Any, Dict
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
+from .cache_helpers import cached_solve_equilibrium, cached_solve_equilibrium_adiabatic
 from .models import CombustionConditions, Formulation, PAHAllocationConfig
-from .equilibrium import solve_equilibrium
 from .thermo_cycles import compute_expansion_isentrope
 from .closed_vessel import simulate_closed_vessel, calibrate_abel_eos_and_burn_rate
 from .toxicity_smoke import analyze_toxicity_and_smoke
 from .stability import analyze_thermal_stability, detect_stabilizer_wt_pct
+
+
+def get_formulation_suite(form_name: str) -> Dict[str, Any]:
+    """Return the isolated per-formulation suite cache dictionary in `st.session_state`."""
+    suite_cache: Dict[str, Dict[str, Any]] = st.session_state.setdefault("suite_cache", {})
+    if form_name not in suite_cache:
+        suite_cache[form_name] = {}
+    return suite_cache[form_name]
+
+
+def rename_formulation_state(old_name: str, new_name: str) -> None:
+    """Preserve per-formulation equilibrium results and suite outputs across a name edit."""
+    if not old_name or old_name == new_name:
+        return
+    results = st.session_state.setdefault("results", {})
+    if old_name in results and new_name not in results:
+        results[new_name] = results.pop(old_name)
+    suite_cache = st.session_state.setdefault("suite_cache", {})
+    if old_name in suite_cache and new_name not in suite_cache:
+        suite_cache[new_name] = suite_cache.pop(old_name)
 
 
 def render_noble_abel_isentrope_section(
@@ -35,7 +57,8 @@ def render_noble_abel_isentrope_section(
         st.info("Define a formulation first.")
         return
 
-    res_iso_src = st.session_state.get("res_perf_cached") or st.session_state.get("result")
+    suite = get_formulation_suite(formulation.name)
+    res_iso_src = suite.get("res_perf_cached") or st.session_state.get("results", {}).get(formulation.name)
     default_iso_eta = 1.00
     if res_iso_src is not None and getattr(res_iso_src, "covolume_cm3_per_g", 0.0) > 0.3:
         default_iso_eta = float(min(1.60, max(0.40, round(res_iso_src.covolume_cm3_per_g, 2))))
@@ -47,17 +70,27 @@ def render_noble_abel_isentrope_section(
         )
     with iso_c2:
         iso_eta = st.slider(
-            "Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.40, 1.60, default_iso_eta, 0.02, key="iso_eta"
+            "Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)",
+            0.40,
+            1.60,
+            default_iso_eta,
+            0.02,
+            key=f"iso_eta_{formulation.name}",
         )
     with iso_c3:
         iso_vmax = st.slider(
             "Max Expansion Ratio (V / V₀)", 4.0, 30.0, 15.0, 1.0, key="iso_vmax"
         )
     if res_iso_src is None and st.button("▶ Compute Expansion Isentrope", type="primary", key="btn_iso_calc"):
-        res_iso_src = solve_equilibrium(
-            formulation, conditions, pah_config, st.session_state.species_db, eq_temp
-        )
-        st.session_state["result"] = res_iso_src
+        if st.session_state.get("active_mode_label") == "adiabatic (self-consistent)":
+            res_iso_src = cached_solve_equilibrium_adiabatic(
+                formulation, conditions, pah_config, st.session_state.species_db, 2500.0
+            )
+        else:
+            res_iso_src = cached_solve_equilibrium(
+                formulation, conditions, pah_config, st.session_state.species_db, eq_temp
+            )
+        st.session_state.setdefault("results", {})[formulation.name] = res_iso_src
 
     if res_iso_src is not None:
         iso_out = compute_expansion_isentrope(
@@ -121,10 +154,11 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
         """)
     st.subheader("Closed-Vessel (Manometric Bomb) Dynamic Vivacity Simulator")
 
+    suite = get_formulation_suite(formulation.name)
+    res_cur = st.session_state.get("results", {}).get(formulation.name)
     default_F = 1050.0
     default_eta = 1.00
-    if "result" in st.session_state and st.session_state["result"] is not None:
-        res_cur = st.session_state["result"]
+    if res_cur is not None:
         if res_cur.force_constant_j_per_g > 0:
             default_F = float(res_cur.force_constant_j_per_g)
         if getattr(res_cur, "covolume_cm3_per_g", 0.0) > 0.3:
@@ -132,8 +166,8 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
 
     cv1, cv2, cv3 = st.columns(3)
     with cv1:
-        cv_F = st.number_input("Force Constant F (J/g)", 200.0, 2500.0, default_F, 10.0, key="cv_F")
-        cv_eta = st.number_input("Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.40, 1.80, default_eta, 0.02, key="cv_eta")
+        cv_F = st.number_input("Force Constant F (J/g)", 200.0, 2500.0, default_F, 10.0, key=f"cv_F_{formulation.name}")
+        cv_eta = st.number_input("Gas Covolume η (cm³/g, BLAKE Σnᵢbᵢ)", 0.40, 1.80, default_eta, 0.02, key=f"cv_eta_{formulation.name}")
         cv_delta = st.number_input("Loading Density Δ (g/cm³)", 0.05, 0.45, 0.20, 0.02, key="cv_delta")
     with cv2:
         geom_labels = {
@@ -163,10 +197,10 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
             grain_geometry=cv_geom,
             heat_loss_fraction=cv_loss,
         )
-        st.session_state["cv_out"] = cv_out
+        suite["cv_out"] = cv_out
 
-    if "cv_out" in st.session_state:
-        cv_out = st.session_state["cv_out"]
+    if "cv_out" in suite:
+        cv_out = suite["cv_out"]
         cm1, cm2, cm3, cm4 = st.columns(4)
         cm1.metric("Peak Bomb Pressure P_max", f"{cv_out['p_max_mpa']:.1f} MPa")
         cm2.metric("Peak dP/dt", f"{cv_out['peak_dp_dt_gpa_s']:.2f} GPa/s")
@@ -315,13 +349,19 @@ def render_smoke_toxicity_tab(
         tx_temp_c = st.slider("Ambient Temperature (°C)", -20.0, 45.0, 15.0, 1.0, key="tx_temp")
         tx_rh_pct = st.slider("Ambient Relative Humidity (%)", 5.0, 100.0, 65.0, 5.0, key="tx_rh")
 
+    suite = get_formulation_suite(formulation.name)
     if st.button("▶ Run Smoke & Range Toxicity Assessment", type="primary", key="btn_run_tox"):
-        res_src = st.session_state.get("result")
+        res_src = st.session_state.get("results", {}).get(formulation.name)
         if res_src is None:
-            res_src = solve_equilibrium(
-                formulation, conditions, pah_config, st.session_state.species_db, eq_temp
-            )
-            st.session_state["result"] = res_src
+            if st.session_state.get("active_mode_label") == "adiabatic (self-consistent)":
+                res_src = cached_solve_equilibrium_adiabatic(
+                    formulation, conditions, pah_config, st.session_state.species_db, 2500.0
+                )
+            else:
+                res_src = cached_solve_equilibrium(
+                    formulation, conditions, pah_config, st.session_state.species_db, eq_temp
+                )
+            st.session_state.setdefault("results", {})[formulation.name] = res_src
         tox_out = analyze_toxicity_and_smoke(
             result=res_src,
             charge_mass_g=tx_charge_g,
@@ -331,10 +371,10 @@ def render_smoke_toxicity_tab(
             ambient_temp_c=tx_temp_c,
             relative_humidity_pct=tx_rh_pct,
         )
-        st.session_state["tox_out"] = tox_out
+        suite["tox_out"] = tox_out
 
-    if "tox_out" in st.session_state:
-        tox_out = st.session_state["tox_out"]
+    if "tox_out" in suite:
+        tox_out = suite["tox_out"]
         hq = tox_out["max_hazard_quotient"]
         if hq >= 1.0:
             st.error(f"**Occupational Exposure Alert:** Peak Hazard Quotient = **{hq:.2f}× OSHA PEL** (Limiting Gas: **{tox_out['limiting_pollutant']}**)")
@@ -411,13 +451,21 @@ def render_stability_tab(formulation: Formulation) -> None:
         st.info("Define a formulation first.")
         return
 
+    suite = get_formulation_suite(formulation.name)
     detected_stab = detect_stabilizer_wt_pct(formulation)
     default_stab = detected_stab if detected_stab > 0.05 else 1.50
 
     st1, st2, st3 = st.columns(3)
     with st1:
         sb_temp_c = st.slider("Magazine Storage Temperature (°C)", 10.0, 65.0, 25.0, 1.0, key="sb_temp")
-        sb_stab_pct = st.number_input("Initial Stabilizer Content (wt%)", 0.10, 6.00, float(default_stab), 0.10, key="sb_stab")
+        sb_stab_pct = st.number_input(
+            "Initial Stabilizer Content (wt%)",
+            0.10,
+            6.00,
+            float(default_stab),
+            0.10,
+            key=f"sb_stab_{formulation.name}",
+        )
     with st2:
         sb_ea = st.number_input("Arrhenius Activation Energy E_a (kJ/mol)", 110.0, 165.0, 135.0, 1.0, key="sb_ea")
         sb_diam_mm = st.number_input("Storage Container / Cartridge Diameter (mm)", 10.0, 400.0, 105.0, 5.0, key="sb_diam")
@@ -435,10 +483,10 @@ def render_stability_tab(formulation: Formulation) -> None:
             thermal_conductivity_w_m_k=sb_cond,
             propellant_density_g_cm3=sb_rho,
         )
-        st.session_state["stab_out"] = stab_out
+        suite["stab_out"] = stab_out
 
-    if "stab_out" in st.session_state:
-        stab_out = st.session_state["stab_out"]
+    if "stab_out" in suite:
+        stab_out = suite["stab_out"]
         if stab_out["stanag_4582_compliant"]:
             st.success("✅ **NATO STANAG 4582 Compliant:** Exceeds 10-year equivalent thermal stability benchmark at 25 °C with safe cook-off margin.")
         else:

@@ -30,7 +30,8 @@ def compute_expansion_isentrope(
         P * (v - eta)^gamma = const
         T * (v - eta)^(gamma - 1) = const
     """
-    t0_k = max(300.0, float(result.adiabatic_flame_temp_k))
+    t_init_src = result.isochoric_flame_temp_k if getattr(result, "isochoric_flame_temp_k", 0.0) > 300.0 else result.adiabatic_flame_temp_k
+    t0_k = max(300.0, float(t_init_src))
     gamma = max(1.05, float(result.gamma))
     f_j_per_g = max(100.0, float(result.force_constant_j_per_g))
     mw_g_mol = max(2.0, float(result.mean_molecular_weight))

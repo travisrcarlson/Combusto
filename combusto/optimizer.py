@@ -15,7 +15,7 @@ import pandas as pd
 from scipy.optimize import minimize
 
 from .chemistry import equivalence_ratio, oxygen_balance
-from .equilibrium import solve_equilibrium
+from .equilibrium import solve_equilibrium, solve_equilibrium_adiabatic
 from .models import (
     CombustionConditions,
     CombustionResult,
@@ -37,6 +37,7 @@ def optimize_formulation(
     min_force_j_per_g: Optional[float] = None,
     component_bounds: Optional[Sequence[Tuple[float, float]]] = None,
     equilibrium_temp_k: float = 2500.0,
+    self_consistent_adiabatic: bool = True,
 ) -> Dict[str, Any]:
     """Optimize component mass fractions of *base_formulation*.
 
@@ -87,10 +88,15 @@ def optimize_formulation(
     else:
         bounds = list(component_bounds)
 
+    def _solve_point(f: Formulation) -> CombustionResult:
+        if self_consistent_adiabatic:
+            return solve_equilibrium_adiabatic(
+                f, conditions, pah_config, species_db=species_db, t_guess=equilibrium_temp_k, tol=2.0, max_iter=20
+            )
+        return solve_equilibrium(f, conditions, pah_config, species_db, equilibrium_temp_k)
+
     # Evaluate baseline first
-    baseline_result = solve_equilibrium(
-        base_formulation, conditions, pah_config, species_db, equilibrium_temp_k
-    )
+    baseline_result = _solve_point(base_formulation)
 
     def _build_form(weights: np.ndarray) -> Formulation:
         w = np.maximum(weights, 0.0)
@@ -114,7 +120,7 @@ def optimize_formulation(
 
     def _eval(weights: np.ndarray) -> CombustionResult:
         f = _build_form(weights)
-        return solve_equilibrium(f, conditions, pah_config, species_db, equilibrium_temp_k)
+        return _solve_point(f)
 
     def _objective(weights: np.ndarray) -> float:
         res = _eval(weights)
@@ -161,9 +167,7 @@ def optimize_formulation(
         best_w = best_w / best_w.sum()
 
     opt_formulation = _build_form(best_w)
-    opt_result = solve_equilibrium(
-        opt_formulation, conditions, pah_config, species_db, equilibrium_temp_k
-    )
+    opt_result = _solve_point(opt_formulation)
 
     comp_rows = []
     for i, c in enumerate(base_formulation.components):
@@ -194,6 +198,7 @@ def compute_ternary_grid(
     species_db: Dict[str, Species],
     n_steps: int = 8,
     equilibrium_temp_k: float = 2500.0,
+    self_consistent_adiabatic: bool = True,
 ) -> pd.DataFrame:
     """Evaluate combustion equilibrium across a 3-component simplex grid.
 
@@ -223,7 +228,12 @@ def compute_ternary_grid(
                     PropellantComponent(comp_c.name, comp_c.formula, wc_eff / tot, comp_c.hf_298),
                 ],
             )
-            res = solve_equilibrium(form, conditions, pah_config, species_db, equilibrium_temp_k)
+            if self_consistent_adiabatic:
+                res = solve_equilibrium_adiabatic(
+                    form, conditions, pah_config, species_db=species_db, t_guess=equilibrium_temp_k, tol=2.0, max_iter=20
+                )
+            else:
+                res = solve_equilibrium(form, conditions, pah_config, species_db, equilibrium_temp_k)
             rows.append({
                 "w_A": w_a,
                 "w_B": w_b,

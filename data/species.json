@@ -1778,6 +1778,68 @@
         -915.616218309,
         -11.936659652
       ]
+    },
+    {
+      "name": "Ar",
+      "formula": "Ar",
+      "phase": "gas",
+      "category": "small",
+      "hf_298": 0.0,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "7440-37-1",
+      "source": "NASA Glenn TP-2002-211556 / NIST-JANAF 4th Ed.",
+      "molar_covolume_cm3_mol": 26.2,
+      "thermo_low": [
+        2.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -745.375,
+        4.3796749
+      ],
+      "thermo_high": [
+        2.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -745.375,
+        4.3796749
+      ]
+    },
+    {
+      "name": "He",
+      "formula": "He",
+      "phase": "gas",
+      "category": "small",
+      "hf_298": 0.0,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "7440-59-7",
+      "source": "NASA Glenn TP-2002-211556 / NIST-JANAF 4th Ed.",
+      "molar_covolume_cm3_mol": 15.5,
+      "thermo_low": [
+        2.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -745.375,
+        0.9287006
+      ],
+      "thermo_high": [
+        2.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -745.375,
+        0.9287006
+      ]
     }
   ]
 }

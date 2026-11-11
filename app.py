@@ -7,7 +7,6 @@ Run with: streamlit run app.py
 from __future__ import annotations
 
 import io
-import os
 import zipfile
 from pathlib import Path
 
@@ -19,54 +18,88 @@ from combusto.workspace_ui import (
     render_main_workbench,
 )
 
-st.set_page_config(
-    page_title="Combusto",
-    page_icon=":fire:",
-    layout="wide",
-    initial_sidebar_state="expanded",
+_ALLOWED_ROOT_FILES = (
+    "app.py",
+    "app_local.py",
+    "requirements.txt",
+    "README.md",
+    "INSTRUCTIONS.md",
+)
+_ALLOWED_DATA_FILES = (
+    "ingredients.json",
+    "propellants.json",
+    "species.json",
 )
 
-inject_cyber_styles()
 
-st.title("Combusto")
-st.caption("Gun & Rocket Propellant Thermochemical, Ballistic & Environmental Engineering Suite")
+@st.cache_data(show_spinner=False)
+def build_desktop_zip_bytes() -> bytes:
+    """Build a clean, allowlisted Combusto Desktop Pro archive in memory.
 
-with st.sidebar.expander("🛠️ Developer Pro Portal", expanded=False):
-    dev_pass = st.text_input("Enter Developer Password:", type="password", key="dev_pass")
-    if dev_pass == "Freya":
-        st.success("Authorized. Local Desktop Pro Build Unlocked.")
+    Strictly packages source modules, grounded JSON databases, unit tests, and
+    documentation while excluding local tunnel binaries, logs, caches, and secrets.
+    """
+    base_dir = Path(__file__).resolve().parent
+    memory_file = io.BytesIO()
 
-        def generate_zip() -> io.BytesIO:
-            memory_file = io.BytesIO()
-            base_dir = Path(__file__).parent
-            with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as zf:
-                for root, _dirs, files in os.walk(base_dir):
-                    if any(skip in root for skip in (".git", "__pycache__", ".pytest_cache")):
-                        continue
-                    for file in files:
-                        if (
-                            file.endswith(".pyc")
-                            or file in (".env", "secrets.toml")
-                            or ".sqlite" in file
-                        ):
-                            continue
-                        file_path = Path(root) / file
-                        arcname = file_path.relative_to(base_dir)
-                        zf.write(file_path, arcname)
-            memory_file.seek(0)
-            return memory_file
+    with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in _ALLOWED_ROOT_FILES:
+            fpath = base_dir / fname
+            if fpath.is_file():
+                zf.write(fpath, arcname=fname)
 
-        st.download_button(
-            label="📥 Download Combusto Desktop (.zip)",
-            data=generate_zip(),
-            file_name="Combusto_Pro_Desktop.zip",
-            mime="application/zip",
-            type="primary",
-        )
-    elif dev_pass:
-        st.error("Incorrect password.")
+        combusto_dir = base_dir / "combusto"
+        if combusto_dir.is_dir():
+            for py_file in sorted(combusto_dir.glob("*.py")):
+                zf.write(py_file, arcname=f"combusto/{py_file.name}")
 
-if not check_web_password():
-    st.stop()
+        data_dir = base_dir / "data"
+        if data_dir.is_dir():
+            for dname in _ALLOWED_DATA_FILES:
+                dpath = data_dir / dname
+                if dpath.is_file():
+                    zf.write(dpath, arcname=f"data/{dname}")
 
-render_main_workbench(extra_editor_hook=None)
+        tests_dir = base_dir / "tests"
+        if tests_dir.is_dir():
+            for test_file in sorted(tests_dir.glob("*.py")):
+                zf.write(test_file, arcname=f"tests/{test_file.name}")
+
+    return memory_file.getvalue()
+
+
+def _main() -> None:
+    st.set_page_config(
+        page_title="Combusto",
+        page_icon=":fire:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    inject_cyber_styles()
+
+    st.title("Combusto")
+    st.caption("Gun & Rocket Propellant Thermochemical, Ballistic & Environmental Engineering Suite")
+
+    with st.sidebar.expander("🛠️ Developer Pro Portal", expanded=False):
+        dev_pass = st.text_input("Enter Developer Password:", type="password", key="dev_pass")
+        if dev_pass == "Freya":
+            st.success("Authorized. Local Desktop Pro Build Unlocked.")
+            st.download_button(
+                label="📥 Download Combusto Desktop (.zip)",
+                data=build_desktop_zip_bytes(),
+                file_name="Combusto_Pro_Desktop.zip",
+                mime="application/zip",
+                type="primary",
+            )
+        elif dev_pass:
+            st.error("Incorrect password.")
+
+    if not check_web_password():
+        st.stop()
+
+    render_main_workbench(extra_editor_hook=None)
+
+
+if __name__ == "__main__" or st.runtime.exists():
+    _main()

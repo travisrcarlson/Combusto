@@ -134,7 +134,6 @@ def simulate_ballistics(
 
     # State vector: [x, v, x_b, z]
     y0 = [0.0, 0.0, 0.0, 0.001]
-    started = [False]
 
     def odes(t: float, y: List[float]) -> List[float]:
         x_travel = y[0]
@@ -156,10 +155,9 @@ def simulate_ballistics(
         else:
             P = 1e9
 
-        if not started[0] and P >= P_start:
-            started[0] = True
-
-        if started[0]:
+        # Purely state-determined shot-start (safe under adaptive RK45 step rejections)
+        is_moving = (x_travel > 1e-9) or (velocity > 1e-6) or (P >= P_start)
+        if is_moving:
             # Secondary work factor (Lagrange gradient: m_eff = m_proj + M_p / 3)
             force = (P - P_res) * A_bore
             accel = force / (m_proj + M_p / 3.0) if force > 0 else 0.0
@@ -185,23 +183,32 @@ def simulate_ballistics(
     projectile_left.terminal = True
     projectile_left.direction = -1
 
-    t_eval = np.linspace(0, t_end, 500)
     sol = solve_ivp(
         odes,
         [0.0, t_end],
         y0,
-        t_eval=t_eval,
         events=projectile_left,
+        dense_output=True,
         method="RK45",
+        max_step=5e-5,
         rtol=1e-5,
         atol=1e-8,
     )
 
-    times = sol.t
-    x_arr = sol.y[0]
-    v_arr = sol.y[1]
-    xb_arr = sol.y[2]
-    z_arr = np.clip(sol.y[3], 0.0, 1.0)
+    t_final = float(sol.t[-1]) if len(sol.t) > 0 else t_end
+    if sol.sol is not None and t_final > 0.0:
+        times = np.linspace(0.0, t_final, 400)
+        y_interp = sol.sol(times)
+        x_arr = np.maximum(0.0, y_interp[0])
+        v_arr = np.maximum(0.0, y_interp[1])
+        xb_arr = np.maximum(0.0, y_interp[2])
+        z_arr = np.clip(y_interp[3], 0.0, 1.0)
+    else:
+        times = sol.t
+        x_arr = sol.y[0]
+        v_arr = sol.y[1]
+        xb_arr = sol.y[2]
+        z_arr = np.clip(sol.y[3], 0.0, 1.0)
 
     p_arr = []
     for x_t, v_t, z_t in zip(x_arr, v_arr, z_arr):
