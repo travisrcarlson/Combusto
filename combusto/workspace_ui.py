@@ -7,8 +7,10 @@ injects its local-only PubChem/NIST lookup hook via `extra_editor_hook`.
 
 from __future__ import annotations
 
+import hmac
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -23,9 +25,11 @@ from .ballistics import (
     estimate_barrel_erosion,
     generate_grain_cross_section,
     grain_form_function,
+    grain_u_max,
     simulate_ballistics,
 )
 from .cache_helpers import (
+    _formulation_key,
     apply_combusto_plotly_theme,
     cached_analyze_nozzle_expansion,
     cached_solve_equilibrium,
@@ -64,7 +68,6 @@ from .presets import (
     get_all_library_templates,
     load_ingredients,
     load_presets,
-    save_formulations,
 )
 from .sensitivity import (
     compare_formulations,
@@ -84,6 +87,7 @@ from .ui_extensions import (
     render_nc_nitration_calculator,
     render_noble_abel_isentrope_section,
     render_smoke_toxicity_tab,
+    render_srm_tab,
     render_stability_tab,
 )
 from .uncertainty import run_monte_carlo_ballistics, simulate_climatic_zones
@@ -273,10 +277,13 @@ header {visibility: hidden;}
 
 def check_web_password() -> bool:
     """Password gate for Combusto session access."""
+    expected = os.environ.get("COMBUSTO_APP_PASSWORD", "combusto2026")
+
     def password_entered() -> None:
-        if st.session_state["password"] == "combusto2026":
+        entered = str(st.session_state.get("password", ""))
+        if hmac.compare_digest(entered, expected):
             st.session_state["password_correct"] = True
-            del st.session_state["password"]
+            st.session_state.pop("password", None)
         else:
             st.session_state["password_correct"] = False
 
@@ -348,7 +355,7 @@ def _render_formulation_manager(
             label_visibility="collapsed",
         )
     with lib_c2:
-        if st.button("➕ Inject into Session", use_container_width=True):
+        if st.button("➕ Inject into Session", width="stretch"):
             src = lib_templates[selected_lib_idx]
             new_f = Formulation(
                 name=src.name,
@@ -364,9 +371,18 @@ def _render_formulation_manager(
         with st.expander("💾 Save & Load JSON Formulations"):
             cs, cl = st.columns(2)
             with cs:
-                if st.button("Save Current Session", use_container_width=True):
-                    save_formulations(st.session_state.formulations, Path("data/custom_formulations.json"))
-                    st.success("Saved formulations to data/custom_formulations.json")
+                session_payload = json.dumps(
+                    {"formulations": [formulation_to_dict(f) for f in st.session_state.formulations]},
+                    indent=2,
+                )
+                st.download_button(
+                    "💾 Download Session JSON",
+                    data=session_payload,
+                    file_name="combusto_session_formulations.json",
+                    mime="application/json",
+                    width="stretch",
+                    key="btn_download_session_json",
+                )
             with cl:
                 uploaded = st.file_uploader("Load JSON", type="json", key="load_file", label_visibility="collapsed")
                 if uploaded:
@@ -395,7 +411,7 @@ def _render_formulation_manager(
                     "Oxygen Balance (%)": round(ob_val, 1),
                     "Components": components_str,
                 })
-            st.dataframe(pd.DataFrame(summary_data).set_index("idx"), use_container_width=True, height=210)
+            st.dataframe(pd.DataFrame(summary_data).set_index("idx"), width="stretch", height=210)
 
     top_c1, top_c2, top_c3 = st.columns([1.4, 1.2, 1.4])
     with top_c1:
@@ -411,13 +427,13 @@ def _render_formulation_manager(
     with top_c2:
         st.markdown("**Compare Against:**")
         compare_options = ["None"] + [n for i, n in enumerate(formulation_names) if i != st.session_state.selected_idx]
-        compare_choice = st.selectbox("Compare with", compare_options, label_visibility="collapsed")
+        compare_choice = st.selectbox("Compare with", compare_options, key="compare_select", label_visibility="collapsed")
         st.session_state.compare_idx = formulation_names.index(compare_choice) if compare_choice != "None" else None
     with top_c3:
         st.markdown("**Formulation Actions:**")
         b1, b2, b3 = st.columns(3)
         with b1:
-            if st.button("Duplicate", use_container_width=True):
+            if st.button("Duplicate", width="stretch"):
                 src = st.session_state.formulations[st.session_state.selected_idx]
                 new_f = Formulation(
                     name=f"{src.name} (copy)",
@@ -428,12 +444,12 @@ def _render_formulation_manager(
                 st.session_state.selected_idx = len(st.session_state.formulations) - 1
                 st.rerun()
         with b2:
-            if st.button("New Blank", use_container_width=True):
+            if st.button("New Blank", width="stretch"):
                 st.session_state.formulations.append(Formulation(name=f"Custom {len(st.session_state.formulations) + 1}"))
                 st.session_state.selected_idx = len(st.session_state.formulations) - 1
                 st.rerun()
         with b3:
-            if len(st.session_state.formulations) > 1 and st.button("Delete", use_container_width=True):
+            if len(st.session_state.formulations) > 1 and st.button("Delete", width="stretch"):
                 st.session_state.formulations.pop(st.session_state.selected_idx)
                 st.session_state.selected_idx = max(0, st.session_state.selected_idx - 1)
                 st.rerun()
@@ -479,7 +495,7 @@ def _render_formulation_manager(
                 key=f"ing_search_{st.session_state.selected_idx}",
             )
         with ing_c2:
-            if st.button("➕ Add Ingredient", use_container_width=True, key=f"add_ing_{st.session_state.selected_idx}"):
+            if st.button("➕ Add Ingredient", width="stretch", key=f"add_ing_{st.session_state.selected_idx}"):
                 if raw_ingredients:
                     ing = raw_ingredients[selected_ing_idx]
                     formulation.components.append(PropellantComponent(
@@ -502,7 +518,7 @@ def _render_formulation_manager(
         edited_df = st.data_editor(
             pd.DataFrame(comp_data),
             num_rows="dynamic",
-            use_container_width=True,
+            width="stretch",
             key=f"comp_editor_{st.session_state.selected_idx}",
             column_config={
                 "Mass Fraction": st.column_config.NumberColumn(min_value=0.0, max_value=1.0, step=0.01, format="%.4f"),
@@ -550,14 +566,14 @@ def _render_formulation_manager(
                 elem = formulation.elemental_composition()
                 st.dataframe(
                     pd.DataFrame([{"Element": k, "mol/g": f"{v:.6f}"} for k, v in sorted(elem.items())]),
-                    use_container_width=True, hide_index=True, height=180,
+                    width="stretch", hide_index=True, height=180,
                 )
             with col_mass:
                 st.markdown("**Elemental Mass Fractions (%)**")
                 emf = formulation.elemental_mass_fractions()
                 st.dataframe(
                     pd.DataFrame([{"Element": k, "Mass %": f"{v * 100:.2f}"} for k, v in sorted(emf.items())]),
-                    use_container_width=True, hide_index=True, height=180,
+                    width="stretch", hide_index=True, height=180,
                 )
 
     return formulation
@@ -581,18 +597,143 @@ def _collect_suite_data(form_name: str) -> Dict[str, Any]:
     }
 
 
+def _render_stale_warning(formulation: Formulation, suite: Dict[str, Any], res_obj: Any) -> None:
+    """Warn the user if the active formulation changed since its stored equilibrium solve."""
+    if res_obj is None:
+        return
+    solved_fp = suite.get("solved_fingerprint")
+    if solved_fp is not None and solved_fp != _formulation_key(formulation):
+        st.warning(
+            f"⚠️ **{formulation.name}** has been edited since the last calculation. "
+            "Re-run the Passport or Equilibrium Solver to refresh thermo/ballistic metrics."
+        )
+
+
+def _passport_radar_scores(res_obj: Any, s_dict: Dict[str, Any]) -> tuple[list[str], list[float]]:
+    """Compute 6 normalized (0-100) multi-physics scorecard metrics for radar overlays."""
+    noz = s_dict.get("nozzle_out")
+    ero = s_dict.get("ero_out")
+    mf = s_dict.get("mf_out")
+    tox = s_dict.get("tox_out")
+    stab = s_dict.get("stab_out")
+
+    isp_sh = noz["shifting"]["isp_vacuum_s"] if noz else res_obj.specific_impulse_s
+    s_impetus = min(100.0, max(10.0, (res_obj.force_constant_j_per_g - 750.0) / 5.5))
+    s_isp = min(100.0, max(10.0, (isp_sh - 180.0) / 1.3))
+    s_barrel = min(100.0, max(5.0, (math.log10(max(ero["estimated_barrel_life_rounds"], 10)) - 1.0) * 28.0)) if ero else 55.0
+    s_flash = (85.0 if not mf["ignited"] else max(15.0, 90.0 - (mf["peak_plume_temp_k"] - 1000.0) / 22.0)) if mf else 60.0
+    s_hygiene = min(100.0, max(10.0, 100.0 - tox["primary_smoke_g_per_kg"] * 1.2 - tox["max_hazard_quotient"] * 18.0)) if tox else 65.0
+    s_stab = min(100.0, max(10.0, stab["shelf_life_at_25c_years"] * 3.5)) if stab else 70.0
+
+    axes = [
+        "Gun Impetus (F)",
+        "Rocket Isp (Vac)",
+        "Barrel Life (EFC)",
+        "Low Muzzle Flash",
+        "Low Smoke & Hygiene",
+        "Shelf-Life (STANAG 4582)",
+    ]
+    return axes, [s_impetus, s_isp, s_barrel, s_flash, s_hygiene, s_stab]
+
+
+def _run_passport_suite(
+    form_obj: Formulation,
+    conditions: CombustionConditions,
+    pah_config: PAHAllocationConfig,
+) -> None:
+    """Execute and cache the full multi-physics Passport characterization for one formulation."""
+    if not form_obj.components:
+        return
+    pass_cond = CombustionConditions(
+        temperature_k=conditions.temperature_k if conditions.temperature_k > 0 else 298.15,
+        pressure_atm=max(conditions.pressure_atm, 100.0),
+        mode="isochoric",
+        loading_density=0.20,
+        inert_gas=conditions.inert_gas,
+        inert_moles=conditions.inert_moles,
+        real_gas_fugacity=conditions.real_gas_fugacity,
+    )
+    res_p = cached_solve_equilibrium_adiabatic(
+        form_obj, pass_cond, pah_config, st.session_state.species_db, 2600.0
+    )
+    st.session_state.results[form_obj.name] = res_p
+
+    s_obj = get_formulation_suite(form_obj.name)
+    noz_p = cached_analyze_nozzle_expansion(
+        form_obj,
+        68.0,
+        1.0,
+        1.0,
+        PRESETS["none"],
+        st.session_state.species_db,
+        8,
+        real_gas_fugacity=conditions.real_gas_fugacity,
+        grain_temp_k=conditions.temperature_k,
+        inert_gas=conditions.inert_gas,
+        inert_moles=conditions.inert_moles,
+    )
+    s_obj["nozzle_out"] = noz_p
+    s_obj["res_perf_cached"] = noz_p["chamber_result"]
+
+    f_val = res_p.force_constant_j_per_g if res_p.force_constant_j_per_g > 50 else 1050.0
+    gam_val = res_p.gamma if res_p.gamma > 1.02 else 1.23
+    eta_val = res_p.covolume_cm3_per_g if res_p.covolume_cm3_per_g > 0.3 else 1.00
+
+    ib_p = simulate_ballistics(
+        force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
+        propellant_density_g_per_cm3=1.60, covolume_cm3_per_g=eta_val,
+        burn_rate_a=1.20, burn_rate_n=0.85, web_thickness_mm=1.20,
+        grain_geometry="7_perf", chamber_volume_cm3=65.0,
+        bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
+    )
+    s_obj["ib_out"] = ib_p
+    s_obj["ero_out"] = estimate_barrel_erosion(ib_p, res_p, bore_diameter_mm=30.0, charge_mass_g=50.0)
+    s_obj["climatic_out"] = simulate_climatic_zones(
+        force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
+        propellant_density_g_per_cm3=1.60, covolume_cm3_per_g=eta_val,
+        burn_rate_a=1.20, burn_rate_n=0.85, web_thickness_mm=1.20,
+        grain_geometry="7_perf", chamber_volume_cm3=65.0,
+        bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
+    )
+    s_obj["mc_out"] = run_monte_carlo_ballistics(
+        force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
+        propellant_density_g_per_cm3=1.60, covolume_cm3_per_g=eta_val,
+        burn_rate_a=1.20, burn_rate_n=0.85, web_thickness_mm=1.20,
+        grain_geometry="7_perf", chamber_volume_cm3=65.0,
+        bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
+        n_trials=80,
+    )
+    s_obj["mf_out"] = analyze_muzzle_flash(
+        res_p, form_obj, expansion_ratio=12.0, muzzle_mach=2.4, suppressant_wt_pct=None
+    )
+    s_obj["tox_out"] = analyze_toxicity_and_smoke(
+        res_p, charge_mass_g=45.0, rounds_fired=5, enclosure_volume_m3=120.0
+    )
+    s_obj["stab_out"] = analyze_thermal_stability(
+        form_obj, storage_temp_c=25.0, stabilizer_wt_pct=None
+    )
+    s_obj["solved_fingerprint"] = _formulation_key(form_obj)
+
+
 def _render_workspace_passport_thermo(formulation: Formulation) -> None:
-    sub_pass, sub_cond, sub_res, sub_noz = st.tabs([
+    sub_pass, sub_cond, sub_res, sub_noz, sub_srm = st.tabs([
         "🪪 Executive Propellant Passport",
         "⚙️ Conditions & Equilibrium Solver",
         "📊 Equilibrium Results & Exports",
         "🚀 Nozzle Isp (Shifting vs Frozen) & Calorimetry",
+        "🛰️ Solid Rocket Motor (SRM)",
     ])
 
     suite = get_formulation_suite(formulation.name)
     conditions: CombustionConditions = st.session_state["active_conditions"]
     pah_config: PAHAllocationConfig = st.session_state["active_pah_config"]
     eq_temp: float = st.session_state["active_eq_temp"]
+    comp_form: Optional[Formulation] = (
+        st.session_state.formulations[st.session_state.compare_idx]
+        if st.session_state.compare_idx is not None
+        and st.session_state.compare_idx < len(st.session_state.formulations)
+        else None
+    )
 
     # --- Sub-tab 1: Executive Propellant Passport ---
     with sub_pass:
@@ -605,80 +746,37 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
         if not formulation.components:
             st.info("Add at least one ingredient in the Formulation Editor above to generate a Propellant Passport.")
         else:
-            p_act1, p_act2 = st.columns([1.4, 1.0])
+            if comp_form is not None and comp_form.components:
+                p_act1, p_act_cmp, p_act2 = st.columns([1.15, 1.05, 1.0])
+            else:
+                p_act1, p_act2 = st.columns([1.4, 1.0])
+                p_act_cmp = None
+
             with p_act1:
                 run_all = st.button(
                     "⚡ Run Complete Multi-Suite Passport & Characterization",
                     type="primary",
                     key="btn_passport_all",
-                    use_container_width=True,
+                    width="stretch",
                 )
-            if run_all:
+            run_both = False
+            if p_act_cmp is not None and comp_form is not None:
+                with p_act_cmp:
+                    run_both = st.button(
+                        f"⚡ Run Passport on Both ({formulation.name[:14]} vs {comp_form.name[:14]})",
+                        type="secondary",
+                        key="btn_passport_both",
+                        width="stretch",
+                    )
+
+            if run_all or run_both:
                 with st.spinner("Executing coupled Gibbs equilibrium, Shifting/Frozen nozzle, Ballistics/Erosion, STANAG 2895/MC, Flash/Smoke/Toxicity & STANAG 4582..."):
-                    pass_cond = CombustionConditions(
-                        temperature_k=298.15,
-                        pressure_atm=max(conditions.pressure_atm, 100.0),
-                        mode="isochoric",
-                        loading_density=0.20,
-                        real_gas_fugacity=True,
-                    )
-                    res_p = cached_solve_equilibrium_adiabatic(
-                        formulation, pass_cond, pah_config, st.session_state.species_db, 2600.0
-                    )
-                    st.session_state.results[formulation.name] = res_p
-
-                    noz_p = cached_analyze_nozzle_expansion(
-                        formulation, 68.0, 1.0, 1.0, PRESETS["none"], st.session_state.species_db, 8
-                    )
-                    suite["nozzle_out"] = noz_p
-                    suite["res_perf_cached"] = noz_p["chamber_result"]
-
-                    f_val = res_p.force_constant_j_per_g if res_p.force_constant_j_per_g > 50 else 1050.0
-                    gam_val = res_p.gamma if res_p.gamma > 1.02 else 1.23
-                    eta_val = res_p.covolume_cm3_per_g if res_p.covolume_cm3_per_g > 0.3 else 1.00
-
-                    ib_p = simulate_ballistics(
-                        force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
-                        propellant_density_g_per_cm3=1.60, covolume_cm3_per_g=eta_val,
-                        burn_rate_a=1.20, burn_rate_n=0.85, web_thickness_mm=1.20,
-                        grain_geometry="7_perf", chamber_volume_cm3=65.0,
-                        bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
-                    )
-                    ero_p = estimate_barrel_erosion(ib_p, res_p, bore_diameter_mm=30.0, charge_mass_g=50.0)
-                    suite["ib_out"] = ib_p
-                    suite["ero_out"] = ero_p
-
-                    clim_p = simulate_climatic_zones(
-                        force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
-                        propellant_density_g_per_cm3=1.60, covolume_cm3_per_g=eta_val,
-                        burn_rate_a=1.20, burn_rate_n=0.85, web_thickness_mm=1.20,
-                        grain_geometry="7_perf", chamber_volume_cm3=65.0,
-                        bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
-                    )
-                    suite["climatic_out"] = clim_p
-
-                    mc_p = run_monte_carlo_ballistics(
-                        force_constant_j_per_g=f_val, gamma=gam_val, charge_mass_g=50.0,
-                        propellant_density_g_per_cm3=1.60, covolume_cm3_per_g=eta_val,
-                        burn_rate_a=1.20, burn_rate_n=0.85, web_thickness_mm=1.20,
-                        grain_geometry="7_perf", chamber_volume_cm3=65.0,
-                        bore_diameter_mm=30.0, barrel_length_m=1.50, projectile_mass_g=300.0,
-                        n_trials=80,
-                    )
-                    suite["mc_out"] = mc_p
-
-                    mf_p = analyze_muzzle_flash(
-                        res_p, formulation, expansion_ratio=12.0, muzzle_mach=2.4, suppressant_wt_pct=None
-                    )
-                    suite["mf_out"] = mf_p
-
-                    tox_p = analyze_toxicity_and_smoke(res_p, charge_mass_g=45.0, rounds_fired=5, enclosure_volume_m3=120.0)
-                    suite["tox_out"] = tox_p
-
-                    stab_p = analyze_thermal_stability(formulation, storage_temp_c=25.0, stabilizer_wt_pct=None)
-                    suite["stab_out"] = stab_p
+                    _run_passport_suite(formulation, conditions, pah_config)
+                    if run_both and comp_form is not None:
+                        _run_passport_suite(comp_form, conditions, pah_config)
 
             res_cur = st.session_state.results.get(formulation.name)
+            _render_stale_warning(formulation, suite, res_cur)
             with p_act2:
                 if res_cur is not None:
                     dossier_bytes = export_full_dossier_pdf(res_cur, formulation, _collect_suite_data(formulation.name))
@@ -687,7 +785,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         data=dossier_bytes,
                         file_name=f"Combusto_{formulation.name.replace(' ', '_')}_Engineering_Dossier.pdf",
                         mime="application/pdf",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
             if res_cur is None:
@@ -736,25 +834,12 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     delta_color="off",
                 )
 
+                res_cmp = st.session_state.results.get(comp_form.name) if comp_form is not None else None
+                suite_cmp = get_formulation_suite(comp_form.name) if comp_form is not None else {}
+
                 pc_left, pc_right = st.columns([1.05, 1.25])
                 with pc_left:
-                    # 6-Axis Normalized Multi-Physics Radar Profile (0-100 scale)
-                    s_impetus = min(100.0, max(10.0, (res_cur.force_constant_j_per_g - 750.0) / 5.5))
-                    s_isp = min(100.0, max(10.0, (isp_sh - 180.0) / 1.3))
-                    s_barrel = min(100.0, max(5.0, (math.log10(max(ero["estimated_barrel_life_rounds"], 10)) - 1.0) * 28.0)) if ero else 55.0
-                    s_flash = (85.0 if not mf["ignited"] else max(15.0, 90.0 - (mf["peak_plume_temp_k"] - 1000.0) / 22.0)) if mf else 60.0
-                    s_hygiene = min(100.0, max(10.0, 100.0 - tox["primary_smoke_g_per_kg"] * 1.2 - tox["max_hazard_quotient"] * 18.0)) if tox else 65.0
-                    s_stab = min(100.0, max(10.0, stab["shelf_life_at_25c_years"] * 3.5)) if stab else 70.0
-
-                    axes = [
-                        "Gun Impetus (F)",
-                        "Rocket Isp (Vac)",
-                        "Barrel Life (EFC)",
-                        "Low Muzzle Flash",
-                        "Low Smoke & Hygiene",
-                        "Shelf-Life (STANAG 4582)",
-                    ]
-                    vals = [s_impetus, s_isp, s_barrel, s_flash, s_hygiene, s_stab]
+                    axes, vals = _passport_radar_scores(res_cur, suite)
                     fig_rad = go.Figure(go.Scatterpolar(
                         r=vals + [vals[0]],
                         theta=axes + [axes[0]],
@@ -763,6 +848,17 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         line=dict(color="#00f0ff", width=2.5),
                         name=formulation.name,
                     ))
+                    has_cmp_radar = comp_form is not None and res_cmp is not None
+                    if has_cmp_radar and comp_form is not None:
+                        _, vals_b = _passport_radar_scores(res_cmp, suite_cmp)
+                        fig_rad.add_trace(go.Scatterpolar(
+                            r=vals_b + [vals_b[0]],
+                            theta=axes + [axes[0]],
+                            fill="toself",
+                            fillcolor="rgba(255, 170, 0, 0.14)",
+                            line=dict(color="#ffaa00", width=2.5, dash="dash"),
+                            name=comp_form.name,
+                        ))
                     fig_rad.update_layout(
                         title="6-Axis Normalized Energetic & Survivability Footprint",
                         polar=dict(
@@ -770,10 +866,10 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                             radialaxis=dict(visible=True, range=[0, 100], gridcolor="rgba(148,163,184,0.18)"),
                             angularaxis=dict(gridcolor="rgba(148,163,184,0.18)"),
                         ),
-                        showlegend=False,
+                        showlegend=has_cmp_radar,
                         height=360,
                     )
-                    st.plotly_chart(fig_rad, use_container_width=True)
+                    st.plotly_chart(fig_rad, width="stretch")
 
                 with pc_right:
                     st.markdown("#### Multi-Suite Qualification Summary")
@@ -809,7 +905,73 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                             "Qualification Status": ("STANAG 4582 Compliant" if stab["stanag_4582_compliant"] else "Surveillance Alert") if stab else "Run Surveillance Suite",
                         },
                     ]
-                    st.dataframe(pd.DataFrame(qual_rows), use_container_width=True, hide_index=True, height=280)
+                    st.dataframe(pd.DataFrame(qual_rows), width="stretch", hide_index=True, height=280)
+
+                if comp_form is not None and res_cmp is not None:
+                    with st.expander(f"🔀 Multi-Physics Visual Overlay: {formulation.name} (A) vs. {comp_form.name} (B)", expanded=True):
+                        noz_b = suite_cmp.get("nozzle_out")
+                        ib_b = suite_cmp.get("ib_out")
+                        ero_b = suite_cmp.get("ero_out")
+                        clim_b = suite_cmp.get("climatic_out")
+
+                        ov_rows = [
+                            ("Closed-Vessel Temp Tv (K)", res_cur.isochoric_flame_temp_k, res_cmp.isochoric_flame_temp_k, "{:.0f}"),
+                            ("Gun Impetus / Force F (J/g)", res_cur.force_constant_j_per_g, res_cmp.force_constant_j_per_g, "{:.1f}"),
+                            ("Calorimetric Heat Qv (J/g)", res_cur.heat_of_explosion_j_per_g, res_cmp.heat_of_explosion_j_per_g, "{:.0f}"),
+                            ("Shifting Vacuum Isp (s)", isp_sh, noz_b["shifting"]["isp_vacuum_s"] if noz_b else res_cmp.specific_impulse_s, "{:.1f}"),
+                        ]
+                        if ib and ib_b:
+                            ov_rows.append(("Peak Breech Pressure (MPa)", ib["max_pressure_mpa"], ib_b["max_pressure_mpa"], "{:.1f}"))
+                            ov_rows.append(("Muzzle Velocity V₀ (m/s)", ib["muzzle_velocity_m_s"], ib_b["muzzle_velocity_m_s"], "{:.1f}"))
+                        if ero and ero_b:
+                            ov_rows.append(("Est. Barrel Life (EFC rounds)", float(ero["estimated_barrel_life_rounds"]), float(ero_b["estimated_barrel_life_rounds"]), "{:.0f}"))
+                        if clim and clim_b:
+                            ov_rows.append(("STANAG 2895 Hot P_max (MPa)", clim["hot_pmax_mpa"], clim_b["hot_pmax_mpa"], "{:.1f}"))
+
+                        ov_df = pd.DataFrame([
+                            {
+                                "Metric": lbl,
+                                f"{formulation.name} (A)": fmt.format(va),
+                                f"{comp_form.name} (B)": fmt.format(vb),
+                                "Δ (A − B)": f"{va - vb:+.2f}".rstrip("0").rstrip(".") if abs(va - vb) >= 1e-6 else "0",
+                            }
+                            for lbl, va, vb, fmt in ov_rows
+                        ])
+                        st.dataframe(ov_df, width="stretch", hide_index=True)
+
+                        n_ov_charts = sum(bool(x) for x in (ib and ib_b, noz and noz_b, clim and clim_b))
+                        if n_ov_charts > 0:
+                            ov_cols = st.columns(n_ov_charts)
+                            col_idx = 0
+                            if ib and ib_b:
+                                with ov_cols[col_idx]:
+                                    fig_ov_ib = go.Figure()
+                                    fig_ov_ib.add_trace(go.Scatter(x=ib["time"] * 1000.0, y=ib["pressure_mpa"], name=formulation.name, line=dict(color="#00f0ff", width=2.5)))
+                                    fig_ov_ib.add_trace(go.Scatter(x=ib_b["time"] * 1000.0, y=ib_b["pressure_mpa"], name=comp_form.name, line=dict(color="#ffaa00", width=2.5, dash="dash")))
+                                    fig_ov_ib.update_layout(title="Gun Breech Pressure P(t) Overlay", xaxis_title="Time (ms)", yaxis_title="MPa", height=320)
+                                    st.plotly_chart(fig_ov_ib, width="stretch")
+                                col_idx += 1
+
+                            if noz and noz_b:
+                                with ov_cols[col_idx]:
+                                    fig_ov_noz = go.Figure(data=[
+                                        go.Bar(name=formulation.name, x=["Isp Vac (s)", "Isp Amb (s)", "C* / 10 (m/s)"], y=[noz["shifting"]["isp_vacuum_s"], noz["shifting"]["isp_ambient_s"], noz["shifting"]["c_star_m_s"] / 10.0], marker_color="#00f0ff"),
+                                        go.Bar(name=comp_form.name, x=["Isp Vac (s)", "Isp Amb (s)", "C* / 10 (m/s)"], y=[noz_b["shifting"]["isp_vacuum_s"], noz_b["shifting"]["isp_ambient_s"], noz_b["shifting"]["c_star_m_s"] / 10.0], marker_color="#ffaa00"),
+                                    ])
+                                    fig_ov_noz.update_layout(barmode="group", title="Nozzle Shifting Performance Overlay", height=320)
+                                    st.plotly_chart(fig_ov_noz, width="stretch")
+                                col_idx += 1
+
+                            if clim and clim_b:
+                                with ov_cols[col_idx]:
+                                    za = clim["zones_df"]
+                                    zb = clim_b["zones_df"]
+                                    fig_ov_cl = go.Figure(data=[
+                                        go.Bar(name=formulation.name, x=za["Code"], y=za["P_max (MPa)"], marker_color="#00f0ff"),
+                                        go.Bar(name=comp_form.name, x=zb["Code"], y=zb["P_max (MPa)"], marker_color="#ffaa00"),
+                                    ])
+                                    fig_ov_cl.update_layout(barmode="group", title="STANAG 2895 Climatic P_max Overlay", xaxis_title="Zone", yaxis_title="P_max (MPa)", height=320)
+                                    st.plotly_chart(fig_ov_cl, width="stretch")
 
     # --- Sub-tab 2: Conditions & Equilibrium Solver ---
     with sub_cond:
@@ -948,6 +1110,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         st.success("Equilibrium calculation complete!")
 
                     st.session_state.results[formulation.name] = result
+                    suite["solved_fingerprint"] = _formulation_key(formulation)
 
                     if st.session_state.compare_idx is not None:
                         comp_form = st.session_state.formulations[st.session_state.compare_idx]
@@ -960,6 +1123,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                                 comp_form, conditions, pah_config, st.session_state.species_db, eq_temp
                             )
                         st.session_state.results[comp_form.name] = res_b
+                        get_formulation_suite(comp_form.name)["solved_fingerprint"] = _formulation_key(comp_form)
 
     # --- Sub-tab 3: Equilibrium Results & Exports ---
     with sub_res:
@@ -968,6 +1132,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
         if result is None:
             st.info("Run a calculation in **Conditions & Equilibrium Solver** (or **Executive Propellant Passport**) first.")
         else:
+            _render_stale_warning(formulation, suite, result)
             st.subheader(f"Equilibrium Thermochemistry: {active_name}")
             m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("Equivalence Ratio φ", f"{result.equivalence_ratio:.3f}")
@@ -987,7 +1152,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
             prod_df = result_to_dataframe(result)
             st.dataframe(
                 prod_df.style.format({"Moles": "{:.6e}", "Mole Fraction": "{:.6f}", "Mass Fraction": "{:.6f}"}),
-                use_container_width=True, hide_index=True,
+                width="stretch", hide_index=True,
             )
 
             col_chart1, col_chart2 = st.columns(2)
@@ -999,7 +1164,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     title="Top-10 Equilibrium Product Mole Fractions",
                 )
                 fig.update_layout(showlegend=False, height=390, coloraxis_showscale=False)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             with col_chart2:
                 if result.carbon_distribution:
                     c_df = carbon_distribution_to_dataframe(result)
@@ -1009,7 +1174,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         title="Carbon Element Partitioning",
                     )
                     fig2.update_layout(height=390)
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width="stretch")
 
             if result.pah_details:
                 st.markdown("### PAH & Soot Precursor Inventory")
@@ -1018,13 +1183,13 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                 with cp1:
                     st.dataframe(
                         pah_df.style.format({"Mole Fraction": "{:.6e}", "Mass Fraction": "{:.6e}", "Carbon Share": "{:.4f}"}),
-                        use_container_width=True, hide_index=True,
+                        width="stretch", hide_index=True,
                     )
                 with cp2:
                     if len(pah_df) > 0:
                         fig_pah = px.bar(pah_df, x="Species", y="Carbon Share", color="Species", text_auto=".4f", title="PAH Species Carbon Share")
                         fig_pah.update_layout(showlegend=False, height=300)
-                        st.plotly_chart(fig_pah, use_container_width=True)
+                        st.plotly_chart(fig_pah, width="stretch")
 
             with st.expander("Element Conservation Verification"):
                 eb_df = element_balance_to_dataframe(result)
@@ -1033,7 +1198,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     st.success(f"Element conservation verified — max error: {max_err:.5f}%")
                 else:
                     st.warning(f"Max element balance error: {max_err:.2f}%")
-                st.dataframe(eb_df.style.format({"Error %": "{:.5f}"}), use_container_width=True, hide_index=True)
+                st.dataframe(eb_df.style.format({"Error %": "{:.5f}"}), width="stretch", hide_index=True)
 
             if st.session_state.compare_idx is not None:
                 comp_name = st.session_state.formulations[st.session_state.compare_idx].name
@@ -1041,28 +1206,49 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                 if result_b:
                     st.divider()
                     st.subheader(f"Side-by-Side Comparison: {active_name} vs. {comp_name}")
+                    cmp_specs = [
+                        ("Equivalence Ratio φ", result.equivalence_ratio, result_b.equivalence_ratio, "{:.3f}", "{:+.3f}"),
+                        ("OB (%)", result.oxygen_balance_pct, result_b.oxygen_balance_pct, "{:+.2f}", "{:+.2f}"),
+                        ("Tp Isobaric (K)", result.adiabatic_flame_temp_k, result_b.adiabatic_flame_temp_k, "{:.0f}", "{:+.0f}"),
+                        ("Tv Closed-Vessel (K)", result.isochoric_flame_temp_k, result_b.isochoric_flame_temp_k, "{:.0f}", "{:+.0f}"),
+                        ("Impetus F (J/g)", result.force_constant_j_per_g, result_b.force_constant_j_per_g, "{:.1f}", "{:+.1f}"),
+                        ("Covolume η (cm³/g)", result.covolume_cm3_per_g, result_b.covolume_cm3_per_g, "{:.3f}", "{:+.3f}"),
+                        ("γ (Cp/Cv)", result.gamma, result_b.gamma, "{:.3f}", "{:+.3f}"),
+                        ("Mean Gas MW", result.mean_molecular_weight, result_b.mean_molecular_weight, "{:.2f}", "{:+.2f}"),
+                    ]
                     metrics_data = {
-                        "Metric": ["Equivalence Ratio φ", "OB (%)", "Tp Isobaric (K)", "Tv Closed-Vessel (K)", "Impetus F (J/g)", "Covolume η (cm³/g)", "γ (Cp/Cv)", "Mean Gas MW"],
-                        active_name: [
-                            f"{result.equivalence_ratio:.3f}", f"{result.oxygen_balance_pct:+.2f}",
-                            f"{result.adiabatic_flame_temp_k:.0f}", f"{result.isochoric_flame_temp_k:.0f}",
-                            f"{result.force_constant_j_per_g:.1f}", f"{result.covolume_cm3_per_g:.3f}",
-                            f"{result.gamma:.3f}", f"{result.mean_molecular_weight:.2f}",
-                        ],
-                        comp_name: [
-                            f"{result_b.equivalence_ratio:.3f}", f"{result_b.oxygen_balance_pct:+.2f}",
-                            f"{result_b.adiabatic_flame_temp_k:.0f}", f"{result_b.isochoric_flame_temp_k:.0f}",
-                            f"{result_b.force_constant_j_per_g:.1f}", f"{result_b.covolume_cm3_per_g:.3f}",
-                            f"{result_b.gamma:.3f}", f"{result_b.mean_molecular_weight:.2f}",
-                        ],
+                        "Metric": [s[0] for s in cmp_specs],
+                        active_name: [s[3].format(s[1]) for s in cmp_specs],
+                        comp_name: [s[3].format(s[2]) for s in cmp_specs],
+                        "Δ (A − B)": [s[4].format(s[1] - s[2]) for s in cmp_specs],
                     }
-                    st.dataframe(pd.DataFrame(metrics_data), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(metrics_data), width="stretch", hide_index=True)
+
+                    prod_b_df = result_to_dataframe(result_b)
+                    top_a = prod_df.nlargest(8, "Mole Fraction")["Species"].tolist()
+                    top_b = prod_b_df.nlargest(8, "Mole Fraction")["Species"].tolist() if len(prod_b_df) > 0 else []
+                    union_sp = list(dict.fromkeys(top_a + top_b))[:8]
+                    if union_sp:
+                        map_a = dict(zip(prod_df["Species"], prod_df["Mole Fraction"]))
+                        map_b = dict(zip(prod_b_df["Species"], prod_b_df["Mole Fraction"])) if len(prod_b_df) > 0 else {}
+                        fig_cmp_sp = go.Figure(data=[
+                            go.Bar(name=active_name, x=union_sp, y=[map_a.get(sp, 0.0) for sp in union_sp], marker_color="#00f0ff"),
+                            go.Bar(name=comp_name, x=union_sp, y=[map_b.get(sp, 0.0) for sp in union_sp], marker_color="#ffaa00"),
+                        ])
+                        fig_cmp_sp.update_layout(
+                            barmode="group",
+                            title="Top Exhaust Species Mole-Fraction Overlay (A vs B)",
+                            xaxis_title="Species",
+                            yaxis_title="Mole Fraction",
+                            height=350,
+                        )
+                        st.plotly_chart(fig_cmp_sp, width="stretch")
 
             st.divider()
             st.markdown("### Export Reports & Structured Data")
             ex1, ex2, ex3, ex4, ex5 = st.columns(5)
-            ex1.download_button("CSV Table", result_to_csv(result), file_name=f"combusto_{active_name.replace(' ', '_')}.csv", mime="text/csv", use_container_width=True)
-            ex2.download_button("Excel Workbook", result_to_excel_bytes(result), file_name=f"combusto_{active_name.replace(' ', '_')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+            ex1.download_button("CSV Table", result_to_csv(result), file_name=f"combusto_{active_name.replace(' ', '_')}.csv", mime="text/csv", width="stretch")
+            ex2.download_button("Excel Workbook", result_to_excel_bytes(result), file_name=f"combusto_{active_name.replace(' ', '_')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
             json_str = json.dumps({
                 "formulation": formulation_to_dict(formulation),
                 "results_summary": {
@@ -1072,13 +1258,14 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     "gamma": result.gamma, "mean_MW": result.mean_molecular_weight,
                 },
             }, indent=2)
-            ex3.download_button("JSON Bundle", json_str, file_name=f"combusto_{active_name.replace(' ', '_')}.json", mime="application/json", use_container_width=True)
-            ex4.download_button("📄 Lab Summary PDF", export_result_pdf(result, formulation), file_name=f"combusto_{active_name.replace(' ', '_')}_lab.pdf", mime="application/pdf", use_container_width=True)
-            ex5.download_button("📘 Full Dossier PDF", export_full_dossier_pdf(result, formulation, _collect_suite_data(active_name)), file_name=f"combusto_{active_name.replace(' ', '_')}_dossier.pdf", mime="application/pdf", use_container_width=True)
+            ex3.download_button("JSON Bundle", json_str, file_name=f"combusto_{active_name.replace(' ', '_')}.json", mime="application/json", width="stretch")
+            ex4.download_button("📄 Lab Summary PDF", export_result_pdf(result, formulation), file_name=f"combusto_{active_name.replace(' ', '_')}_lab.pdf", mime="application/pdf", width="stretch")
+            ex5.download_button("📘 Full Dossier PDF", export_full_dossier_pdf(result, formulation, _collect_suite_data(active_name)), file_name=f"combusto_{active_name.replace(' ', '_')}_dossier.pdf", mime="application/pdf", width="stretch")
 
     # --- Sub-tab 4: Nozzle Isp (Shifting vs Frozen) & Calorimetry ---
     with sub_noz:
         st.subheader("🚀 1D Rocket Nozzle Expansion — Shifting Equilibrium vs. Frozen Composition")
+        _render_stale_warning(formulation, suite, st.session_state.results.get(formulation.name))
         st.caption(
             "Solves NASA CEA-style homogeneous isentropic expansion S(T, P) = S_c through sonic throat Pt to exit pressure Pe, "
             "quantifying exothermic CO/H₂/radical recombination gains in C*, CF, and Vacuum/Ambient Isp."
@@ -1104,9 +1291,14 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                         pah_config=PRESETS["none"],
                         species_db=st.session_state.species_db,
                         n_profile_points=12,
+                        real_gas_fugacity=conditions.real_gas_fugacity,
+                        grain_temp_k=conditions.temperature_k,
+                        inert_gas=conditions.inert_gas,
+                        inert_moles=conditions.inert_moles,
                     )
                     suite["nozzle_out"] = noz_out
                     suite["res_perf_cached"] = noz_out["chamber_result"]
+                    suite["solved_fingerprint"] = _formulation_key(formulation)
 
         if "nozzle_out" in suite:
             noz = suite["nozzle_out"]
@@ -1128,7 +1320,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                 {"Parameter": "Ambient Specific Impulse Isp (s)", "Frozen Composition": round(fz["isp_ambient_s"], 2), "Shifting Equilibrium": round(sh["isp_ambient_s"], 2), "Recombination Shift": f"{sh['isp_ambient_s'] - fz['isp_ambient_s']:+.2f}"},
                 {"Parameter": "Vacuum Specific Impulse Isp,vac (s)", "Frozen Composition": round(fz["isp_vacuum_s"], 2), "Shifting Equilibrium": round(sh["isp_vacuum_s"], 2), "Recombination Shift": f"{sh['isp_vacuum_s'] - fz['isp_vacuum_s']:+.2f}"},
             ])
-            st.dataframe(comp_noz_df, use_container_width=True, hide_index=True)
+            st.dataframe(comp_noz_df, width="stretch", hide_index=True)
 
             pdf_n = noz["profile_df"]
             ng1, ng2 = st.columns(2)
@@ -1144,7 +1336,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     yaxis2=dict(title="Exhaust Velocity (m/s)", overlaying="y", side="right"),
                     height=390,
                 )
-                st.plotly_chart(fig_nt, use_container_width=True)
+                st.plotly_chart(fig_nt, width="stretch")
             with ng2:
                 fig_nx = go.Figure()
                 fig_nx.add_trace(go.Scatter(x=pdf_n["pressure_ratio_pc_p"], y=pdf_n["x_CO_shifting"], name="CO", line=dict(width=2.4)))
@@ -1157,7 +1349,7 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
                     yaxis=dict(title="Species Mole Fraction"),
                     height=390,
                 )
-                st.plotly_chart(fig_nx, use_container_width=True)
+                st.plotly_chart(fig_nx, width="stretch")
 
         render_noble_abel_isentrope_section(formulation, conditions, pah_config, eq_temp)
 
@@ -1177,7 +1369,11 @@ def _render_workspace_passport_thermo(formulation: Formulation) -> None:
             cc1, cc2 = st.columns(2)
             cc1.metric("Calorimetric Heat of Explosion Qv (H₂O liq)", f"{rc.heat_of_explosion_j_per_g:.0f} J/g")
             cc2.metric("Permanent Gas Moles at 298.15 K", f"{rc.gas_moles_total:.5f} mol/g")
-            st.dataframe(result_to_dataframe(rc), use_container_width=True, hide_index=True)
+            st.dataframe(result_to_dataframe(rc), width="stretch", hide_index=True)
+
+    # --- Sub-tab 5: Solid Rocket Motor (SRM) ---
+    with sub_srm:
+        render_srm_tab(formulation)
 
 
 # ---------------------------------------------------------------------------
@@ -1237,8 +1433,8 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                 ib_pstart_mpa = st.number_input("Shot-Start Pressure (MPa)", 1.0, 150.0, 30.0, 5.0, key="ib_pstart")
 
             with st.expander("🔬 2D Grain Cross-Section Burnback & Form Function Visualizer", expanded=False):
-                u_max_vis = 1.18 if ib_geom == "7_perf" else (1.15 if ib_geom == "19_perf" else 1.0)
-                u_vis = st.slider("Inspect Normalized Web Burn Depth u = 2·x_b / D₀", 0.0, float(u_max_vis), 0.35, 0.02, key="ib_u_vis")
+                u_max_vis = grain_u_max(ib_geom)
+                u_vis = st.slider("Inspect Normalized Web Burn Depth u = 2·x_b / D₀", 0.0, float(u_max_vis), min(0.35, float(u_max_vis)), 0.02, key="ib_u_vis")
                 cs = generate_grain_cross_section(ib_geom, ib_web_mm, u_vis)
                 z_cur, _ = grain_form_function(u_vis, ib_geom)
 
@@ -1255,7 +1451,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                         fig_cs.add_trace(go.Scatter(x=cx + r_pc * np.cos(theta), y=cy + r_pc * np.sin(theta), mode="lines", name="Active Perf Front" if idx_p == 0 else None, showlegend=(idx_p == 0), line=dict(color="#ffaa00", width=2.0), fill="toself", fillcolor="rgba(14, 18, 30, 0.90)"))
                     lim = r_oi * 1.15
                     fig_cs.update_layout(title=f"Cross-Section at u={u_vis:.2f} (Mass Burned z={z_cur * 100:.1f}%)", xaxis=dict(title="mm", range=[-lim, lim], scaleanchor="y", scaleratio=1), yaxis=dict(title="mm", range=[-lim, lim]), height=360)
-                    st.plotly_chart(fig_cs, use_container_width=True)
+                    st.plotly_chart(fig_cs, width="stretch")
                 with vis_c2:
                     u_arr = np.linspace(0.0, u_max_vis, 100)
                     z_vals = [grain_form_function(float(uu), ib_geom)[0] * 100.0 for uu in u_arr]
@@ -1265,7 +1461,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     fig_ff.add_trace(go.Scatter(x=u_arr, y=dz_vals, name="Relative Surface Area dz/du", yaxis="y2", line=dict(color="#ffaa00", dash="dash", width=2.0)))
                     fig_ff.add_vline(x=u_vis, line_dash="dot", line_color="#00f0ff")
                     fig_ff.update_layout(title="Grain Form Function z(u) & Relative Burning Area dz/du", xaxis_title="Normalized Web Burn Depth u", yaxis=dict(title="Mass Burned z (%)", range=[0, 105]), yaxis2=dict(title="Relative Area dz/du", overlaying="y", side="right"), height=360)
-                    st.plotly_chart(fig_ff, use_container_width=True)
+                    st.plotly_chart(fig_ff, width="stretch")
 
             if st.button("▶ Run Interior Ballistics & Barrel Erosion Simulation", type="primary", key="btn_run_ib"):
                 with st.spinner("Integrating Lagrange ballistic ODEs and Lawton/Krause bore heat transfer..."):
@@ -1296,13 +1492,13 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     fig_ib1.add_trace(go.Scatter(x=ib_out["time"] * 1000.0, y=ib_out["pressure_mpa"], name="Pressure (MPa)", line=dict(color="#00f0ff", width=2.5)))
                     fig_ib1.add_trace(go.Scatter(x=ib_out["time"] * 1000.0, y=ib_out["fraction_burned"] * 100.0, name="Burned %", yaxis="y2", line=dict(color="#ffaa00", dash="dot", width=2)))
                     fig_ib1.update_layout(title="Chamber Pressure & Burn Fraction vs Time", xaxis_title="Time (ms)", yaxis=dict(title="Pressure (MPa)"), yaxis2=dict(title="Burned (%)", overlaying="y", side="right", range=[0, 105]), height=390)
-                    st.plotly_chart(fig_ib1, use_container_width=True)
+                    st.plotly_chart(fig_ib1, width="stretch")
                 with ib_g2:
                     fig_ib2 = go.Figure()
                     fig_ib2.add_trace(go.Scatter(x=ib_out["travel_m"], y=ib_out["velocity_m_s"], name="Velocity (m/s)", line=dict(color="#00ff88", width=2.5)))
                     fig_ib2.add_trace(go.Scatter(x=ib_out["travel_m"], y=ib_out["pressure_mpa"], name="Pressure (MPa)", yaxis="y2", line=dict(color="#00f0ff", dash="dash", width=2)))
                     fig_ib2.update_layout(title="Projectile Velocity & Pressure vs Barrel Travel", xaxis_title="Travel (m)", yaxis=dict(title="Velocity (m/s)"), yaxis2=dict(title="Pressure (MPa)", overlaying="y", side="right"), height=390)
-                    st.plotly_chart(fig_ib2, use_container_width=True)
+                    st.plotly_chart(fig_ib2, width="stretch")
 
                 if "ero_out" in suite:
                     ero_out = suite["ero_out"]
@@ -1320,7 +1516,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     fig_ero.add_hline(y=1000.0, line_dash="dash", line_color="#ffaa00", annotation_text="Steel Austenitization (~1000 K)")
                     fig_ero.add_hline(y=1720.0, line_dash="dot", line_color="#ff2222", annotation_text="Gun Steel Melt (~1720 K)")
                     fig_ero.update_layout(title="Transient Bore Wall Surface Temperature at Origin of Rifling", xaxis_title="Time (ms)", yaxis_title="Wall Temperature (K)", height=360)
-                    st.plotly_chart(fig_ero, use_container_width=True)
+                    st.plotly_chart(fig_ero, width="stretch")
 
     # --- Sub-tab 2: STANAG 2895 Climatic & Monte Carlo Dispersion ---
     with sub_tol:
@@ -1394,7 +1590,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             cm3.metric("Hot Desert A1 (+63 °C) P_max", f"{clim['hot_pmax_mpa']:.1f} MPa")
             cm4.metric("Thermal Pressure Gradient", f"{clim['pressure_temp_gradient_mpa_per_k']:+.2f} MPa/K", delta=f"{clim['velocity_temp_gradient_m_s_per_k']:+.2f} m/s/K", delta_color="off")
 
-            st.dataframe(clim["zones_df"].drop(columns=["Code"]), use_container_width=True, hide_index=True)
+            st.dataframe(clim["zones_df"].drop(columns=["Code"]), width="stretch", hide_index=True)
 
             fig_cl = go.Figure()
             zone_colors = {"C2": "#38bdf8", "C0": "#818cf8", "AMB": "#00ff88", "A2": "#ffaa00", "A1": "#ff5566"}
@@ -1403,7 +1599,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
             fig_cl.add_hline(y=clim["service_limit_mpa"], line_dash="dash", line_color="#ffaa00", annotation_text=f"Service MPOP ({clim['service_limit_mpa']:.0f} MPa)")
             fig_cl.add_hline(y=clim["proof_limit_mpa"], line_dash="dot", line_color="#ff4444", annotation_text=f"Proof Limit ({clim['proof_limit_mpa']:.0f} MPa)")
             fig_cl.update_layout(title="NATO STANAG 2895 Breech Pressure P(t) Across Climatic Conditioning Zones", xaxis_title="Time (ms)", yaxis_title="Breech Pressure (MPa)", height=390)
-            st.plotly_chart(fig_cl, use_container_width=True)
+            st.plotly_chart(fig_cl, width="stretch")
 
         if "mc_out" in suite:
             mc = suite["mc_out"]
@@ -1423,7 +1619,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                 fig_hp.add_vline(x=mc["service_limit_mpa"], line_dash="dash", line_color="#ffaa00", annotation_text="MPOP")
                 fig_hp.add_vline(x=mc["proof_limit_mpa"], line_dash="dot", line_color="#ff4444", annotation_text="Proof")
                 fig_hp.update_layout(height=370)
-                st.plotly_chart(fig_hp, use_container_width=True)
+                st.plotly_chart(fig_hp, width="stretch")
             with mg2:
                 sens_items = sorted(mc["sensitivity_correlations"].items(), key=lambda kv: abs(kv[1]))
                 fig_tor = go.Figure(go.Bar(
@@ -1439,7 +1635,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                     xaxis=dict(title="Linear Correlation with P_max", range=[-1.05, 1.05]),
                     height=370,
                 )
-                st.plotly_chart(fig_tor, use_container_width=True)
+                st.plotly_chart(fig_tor, width="stretch")
 
     # --- Sub-tab 3: Closed-Vessel & Vivacity ---
     with sub_cv:
@@ -1522,7 +1718,7 @@ def _render_workspace_ballistics_tolerance(formulation: Formulation) -> None:
                 fig_dd.add_trace(go.Scatter(x=rho_arr, y=d_arr, mode="lines", name="D(ρ) — Kamlet-Jacobs", line=dict(color="#ff5566", width=2.5)))
                 fig_dd.add_trace(go.Scatter(x=[inp["rho"]], y=[rv["D_km_s"]], mode="markers", marker=dict(size=12, color="#ffffff", line=dict(color="#ff5566", width=2.5)), name=f"ρ₀ = {inp['rho']:.3f} g/cm³"))
                 fig_dd.update_layout(title="Kamlet-Jacobs Linear VoD vs Loading Density", xaxis_title="Loading Density ρ₀ (g/cm³)", yaxis_title="VoD (km/s)", height=350)
-                st.plotly_chart(fig_dd, use_container_width=True)
+                st.plotly_chart(fig_dd, width="stretch")
 
 
 # ---------------------------------------------------------------------------
@@ -1609,7 +1805,7 @@ def _render_workspace_signature_hygiene(formulation: Formulation) -> None:
                 fig_mf.add_trace(go.Scatter(x=plume_df["air_to_exhaust_ratio"], y=plume_df["unreacted_mix_temp_k"], name="Unreacted Mixing Temp (K)", line=dict(color="#94a3b8", dash="dash", width=2)))
                 fig_mf.add_hline(y=mf_out["ignition_threshold_k"], line_dash="dashdot", line_color="#00ff88", annotation_text=f"Ignition Threshold ({mf_out['ignition_threshold_k']:.0f} K)")
                 fig_mf.update_layout(title="Muzzle Plume Temperature Envelope vs Entrained Air-to-Exhaust Ratio", xaxis_title="Entrained Air / Exhaust Mass Ratio α", yaxis_title="Temperature (K)", height=410)
-                st.plotly_chart(fig_mf, use_container_width=True)
+                st.plotly_chart(fig_mf, width="stretch")
 
     with sub_tox:
         render_smoke_toxicity_tab(formulation, conditions, pah_config, eq_temp)
@@ -1650,18 +1846,57 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
             with opt_c3:
                 opt_max_pah_pct = st.slider("Max Allowed PAH/Soot Carbon (%)", 0.5, 25.0, 5.0, 0.5, key="opt_max_pah")
 
+            st.markdown("**Ingredient Bounds & Lock Constraints (%)**")
+            opt_bounds_rows = [
+                {
+                    "Component": c.name,
+                    "Current %": round(c.mass_fraction * 100.0, 2),
+                    "Lock": False,
+                    "Min %": 0.0,
+                    "Max %": 100.0,
+                }
+                for c in formulation.components
+            ]
+            edited_opt_df = st.data_editor(
+                pd.DataFrame(opt_bounds_rows),
+                width="stretch",
+                hide_index=True,
+                disabled=["Component", "Current %"],
+                key=f"opt_bounds_ed_{st.session_state.selected_idx}_{len(formulation.components)}",
+                column_config={
+                    "Lock": st.column_config.CheckboxColumn(default=False),
+                    "Min %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0, format="%.1f"),
+                    "Max %": st.column_config.NumberColumn(min_value=0.0, max_value=100.0, step=1.0, format="%.1f"),
+                },
+            )
+            opt_locked = [int(i) for i, row in edited_opt_df.iterrows() if bool(row["Lock"])]
+            opt_bounds = [
+                (
+                    max(0.0, min(1.0, float(row["Min %"]) / 100.0)),
+                    max(0.0, min(1.0, float(row["Max %"]) / 100.0)),
+                )
+                for _, row in edited_opt_df.iterrows()
+            ]
+            opt_self_adiab = st.session_state.get("active_mode_label", "adiabatic (self-consistent)") == "adiabatic (self-consistent)"
+
             if st.button("▶ Run Constrained Formulation Optimizer", type="primary", key="btn_run_opt"):
                 with st.spinner("Optimizing ingredient mass fractions via SLSQP..."):
-                    suite["opt_res"] = optimize_formulation(
-                        base_formulation=formulation,
-                        conditions=conditions,
-                        pah_config=pah_config,
-                        species_db=st.session_state.species_db,
-                        objective_metric=opt_goal,
-                        max_temp_k=float(opt_max_t),
-                        max_pah_frac=float(opt_max_pah_pct) / 100.0,
-                        equilibrium_temp_k=eq_temp,
-                    )
+                    try:
+                        suite["opt_res"] = optimize_formulation(
+                            base_formulation=formulation,
+                            conditions=conditions,
+                            pah_config=pah_config,
+                            species_db=st.session_state.species_db,
+                            objective_metric=opt_goal,
+                            max_temp_k=float(opt_max_t),
+                            max_pah_frac=float(opt_max_pah_pct) / 100.0,
+                            component_bounds=opt_bounds,
+                            locked_indices=opt_locked,
+                            equilibrium_temp_k=eq_temp,
+                            self_consistent_adiabatic=opt_self_adiab,
+                        )
+                    except ValueError as exc:
+                        st.error(f"Infeasible optimizer bounds: {exc}")
 
             if "opt_res" in suite:
                 opt_res = suite["opt_res"]
@@ -1673,11 +1908,19 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                 b_pah = b_res.carbon_distribution.get("PAHs", 0.0) * 100.0
                 o_pah = o_res.carbon_distribution.get("PAHs", 0.0) * 100.0
                 oc4.metric("PAH / Soot Carbon", f"{o_pah:.2f}%", delta=f"{o_pah - b_pah:+.2f}%", delta_color="inverse")
-                st.dataframe(opt_res["comparison_df"], use_container_width=True, hide_index=True)
+                st.dataframe(opt_res["comparison_df"], width="stretch", hide_index=True)
 
                 if st.button("✨ Apply Optimized Mass Fractions to Active Formulation", key="btn_apply_opt"):
-                    st.session_state.formulations[st.session_state.selected_idx] = opt_res["optimized_formulation"]
-                    st.session_state.results[opt_res["optimized_formulation"].name] = o_res
+                    opt_f = opt_res["optimized_formulation"]
+                    st.session_state.formulations[st.session_state.selected_idx] = Formulation(
+                        name=formulation.name,
+                        components=[PropellantComponent(c.name, c.formula, c.mass_fraction, c.hf_298) for c in opt_f.components],
+                        description=formulation.description,
+                    )
+                    st.session_state.results[formulation.name] = o_res
+                    for stale_k in ("ib_out", "ero_out", "climatic_out", "mc_out", "nozzle_out", "mf_out", "tox_out", "stab_out", "srm_out"):
+                        suite.pop(stale_k, None)
+                    suite["solved_fingerprint"] = _formulation_key(st.session_state.formulations[st.session_state.selected_idx])
                     st.rerun()
 
         st.divider()
@@ -1739,7 +1982,7 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                     ternary={"sum": 100, "aaxis": {"title": lbl_a, "min": 0}, "baxis": {"title": lbl_b, "min": 0}, "caxis": {"title": lbl_c, "min": 0}},
                     height=530,
                 )
-                st.plotly_chart(fig_tern, use_container_width=True)
+                st.plotly_chart(fig_tern, width="stretch")
 
     # --- Sub-tab 2: 1D & 2D Parametric Sensitivity ---
     with sub_sens:
@@ -1759,21 +2002,21 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                     v1_label = st.selectbox("Variable 1 (X-Axis)", list(var_opts.keys()), index=0, key="sa2d_v1")
                     v1_name = var_opts[v1_label]
                     if v1_name == "equivalence_ratio":
-                        v1_min, v1_max = st.slider("X Range (φ)", 0.5, 3.0, (0.5, 2.5), step=0.1, key="sa2d_v1_rng")
+                        v1_min, v1_max = st.slider("X Range (φ)", 0.5, 3.0, (0.5, 2.5), step=0.1, key="sa2d_v1_rng_phi")
                     elif v1_name == "temperature":
-                        v1_min, v1_max = st.slider("X Range (Temperature K)", 1000, 4500, (1500, 3500), step=100, key="sa2d_v1_rng")
+                        v1_min, v1_max = st.slider("X Range (Temperature K)", 1000, 4500, (1500, 3500), step=100, key="sa2d_v1_rng_temp")
                     else:
-                        v1_min, v1_max = st.slider("X Range (Pressure atm)", 1, 500, (10, 150), step=10, key="sa2d_v1_rng")
+                        v1_min, v1_max = st.slider("X Range (Pressure atm)", 1, 500, (10, 150), step=10, key="sa2d_v1_rng_press")
                 with col_v2:
                     rem_opts = {k: v for k, v in var_opts.items() if k != v1_label}
                     v2_label = st.selectbox("Variable 2 (Y-Axis)", list(rem_opts.keys()), index=0, key="sa2d_v2")
                     v2_name = rem_opts[v2_label]
                     if v2_name == "equivalence_ratio":
-                        v2_min, v2_max = st.slider("Y Range (φ)", 0.5, 3.0, (0.8, 2.8), step=0.1, key="sa2d_v2_rng")
+                        v2_min, v2_max = st.slider("Y Range (φ)", 0.5, 3.0, (0.8, 2.8), step=0.1, key="sa2d_v2_rng_phi")
                     elif v2_name == "temperature":
-                        v2_min, v2_max = st.slider("Y Range (Temperature K)", 1000, 4500, (2000, 4000), step=100, key="sa2d_v2_rng")
+                        v2_min, v2_max = st.slider("Y Range (Temperature K)", 1000, 4500, (2000, 4000), step=100, key="sa2d_v2_rng_temp")
                     else:
-                        v2_min, v2_max = st.slider("Y Range (Pressure atm)", 1, 500, (20, 200), step=10, key="sa2d_v2_rng")
+                        v2_min, v2_max = st.slider("Y Range (Pressure atm)", 1, 500, (20, 200), step=10, key="sa2d_v2_rng_press")
 
                 metric_opts = {
                     "Isobaric Flame Temperature (K)": "adiabatic_flame_temp_k",
@@ -1802,9 +2045,12 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                         suite["sensitivity_df"] = compare_formulations(st.session_state.formulations, conditions, pah_config, st.session_state.species_db, eq_temp)
                         suite["sensitivity_type"] = "multi"
                     else:
+                        sa2d_adiab = st.session_state.get("active_mode_label", "adiabatic (self-consistent)") == "adiabatic (self-consistent)"
                         suite["sensitivity_df"] = sweep_2d(
                             formulation, conditions, pah_config, st.session_state.species_db,
                             v1_name, np.linspace(v1_min, v1_max, 10), v2_name, np.linspace(v2_min, v2_max, 10),
+                            equilibrium_temp_k=eq_temp,
+                            self_consistent_adiabatic=sa2d_adiab,
                         )
                         suite["sensitivity_type"] = "sweep2d"
                         suite["sa2d_v1_name"] = v1_name
@@ -1822,14 +2068,14 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                         for col_s, lbl_s in [("CO2_mole_frac", "CO₂"), ("CO_mole_frac", "CO"), ("H2O_mole_frac", "H₂O"), ("H2_mole_frac", "H₂")]:
                             fig.add_trace(go.Scatter(x=df["phi_target"], y=df[col_s], name=lbl_s, mode="lines+markers"))
                         fig.update_layout(title="Major Products vs Equivalence Ratio φ", xaxis_title="φ", yaxis_title="Mole Fraction", height=380)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     with g2:
                         fig2 = go.Figure()
                         fig2.add_trace(go.Scatter(x=df["phi_target"], y=df["PAH_carbon_frac"], name="PAH C fraction", fill="tozeroy"))
                         fig2.add_trace(go.Scatter(x=df["phi_target"], y=df["CO_carbon_frac"], name="CO C fraction"))
                         fig2.add_trace(go.Scatter(x=df["phi_target"], y=df["CO2_carbon_frac"], name="CO₂ C fraction"))
                         fig2.update_layout(title="Carbon Partitioning vs φ", xaxis_title="φ", yaxis_title="Carbon Share", height=380)
-                        st.plotly_chart(fig2, use_container_width=True)
+                        st.plotly_chart(fig2, width="stretch")
                 elif stype == "temp":
                     g1, g2 = st.columns(2)
                     with g1:
@@ -1837,19 +2083,19 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                         for col_s, lbl_s in [("CO2_mole_frac", "CO₂"), ("CO_mole_frac", "CO"), ("H2O_mole_frac", "H₂O"), ("H2_mole_frac", "H₂")]:
                             fig.add_trace(go.Scatter(x=df["sweep_temperature_k"], y=df[col_s], name=lbl_s, mode="lines+markers"))
                         fig.update_layout(title="Equilibrium Products vs Temperature", xaxis_title="T (K)", yaxis_title="Mole Fraction", height=380)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     with g2:
                         fig2 = go.Figure()
                         fig2.add_trace(go.Scatter(x=df["sweep_temperature_k"], y=df["PAH_carbon_frac"], name="PAH C fraction", fill="tozeroy"))
                         fig2.update_layout(title="PAH Carbon Share vs Temperature", xaxis_title="T (K)", yaxis_title="PAH C Share", height=380)
-                        st.plotly_chart(fig2, use_container_width=True)
+                        st.plotly_chart(fig2, width="stretch")
                 elif stype == "pah":
                     fig = px.bar(df, x="pah_model", y=["CO2_carbon_frac", "CO_carbon_frac", "PAH_carbon_frac"], barmode="group", title="Carbon Distribution by PAH Model")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 elif stype == "multi":
                     fig = px.bar(df, x="formulation", y=["CO2_mole_frac", "CO_mole_frac", "H2O_mole_frac", "H2_mole_frac", "N2_mole_frac"], barmode="group", title="Multi-Formulation Exhaust Comparison")
                     fig.update_layout(xaxis_tickangle=-35, height=430)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
                 elif stype == "sweep2d":
                     v1_n = suite.get("sa2d_v1_name", "param1")
                     v2_n = suite.get("sa2d_v2_name", "param2")
@@ -1867,14 +2113,14 @@ def _render_workspace_design_surveillance(formulation: Formulation) -> None:
                     with g1:
                         fig = go.Figure(data=[go.Surface(z=z_grid, x=x_vals, y=y_vals, colorscale="Viridis")])
                         fig.update_layout(title=f"3D Surface: {met_lbl}", scene=dict(xaxis_title=v1_n, yaxis_title=v2_n, zaxis_title=met_lbl), height=460)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     with g2:
                         fig2 = go.Figure(data=go.Contour(z=z_grid, x=x_vals, y=y_vals, colorscale="Viridis", contours=dict(showlabels=True)))
                         fig2.update_layout(title=f"2D Contour Map: {met_lbl}", xaxis_title=v1_n, yaxis_title=v2_n, height=460)
-                        st.plotly_chart(fig2, use_container_width=True)
+                        st.plotly_chart(fig2, width="stretch")
 
                 with st.expander("Raw Sweep Dataset & CSV Export"):
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.dataframe(df, width="stretch", hide_index=True)
                     st.download_button("Download Sweep CSV", df.to_csv(index=False), file_name="combusto_sensitivity.csv", mime="text/csv")
 
     # --- Sub-tab 3: STANAG 4582 Shelf-Life & Cook-Off ---

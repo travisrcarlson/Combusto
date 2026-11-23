@@ -154,7 +154,7 @@ def _render_local_pubchem_nist_lookup(formulation: Formulation) -> None:
             )
         with api_col2:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-            run_search = st.button("Search API", key=f"run_api_search_{idx}", use_container_width=True)
+            run_search = st.button("Search API", key=f"run_api_search_{idx}", width="stretch")
 
         if search_query and run_search:
             is_smiles = (
@@ -191,7 +191,7 @@ def _render_local_pubchem_nist_lookup(formulation: Formulation) -> None:
         if lookup_key in st.session_state:
             cached_res = st.session_state[lookup_key]
             st.info(f"Buffered Compound: **{cached_res['name']}** ({cached_res['formula']} | {cached_res['hf_298']:.1f} kJ/mol)")
-            if st.button("➕ Inject into Component Table", key=f"inject_api_res_{idx}", use_container_width=True):
+            if st.button("➕ Inject into Component Table", key=f"inject_api_res_{idx}", width="stretch"):
                 formulation.components.append(PropellantComponent(
                     name=cached_res["name"],
                     formula=cached_res["formula"],
@@ -212,6 +212,12 @@ def _main() -> None:
     )
 
     inject_cyber_styles()
+
+    st.title("Combusto")
+    st.caption("Gun & Rocket Propellant Thermochemical, Ballistic & Environmental Engineering Suite — Desktop Pro")
+
+    if not check_web_password():
+        st.stop()
 
     st.sidebar.markdown("## ⚙️ Combusto Local Admin")
     admin_action = st.sidebar.radio(
@@ -240,7 +246,7 @@ def _main() -> None:
             edited_df = st.data_editor(
                 df_display,
                 num_rows="dynamic",
-                use_container_width=True,
+                width="stretch",
                 height=600,
                 key=f"db_editor_{db_choice}",
             )
@@ -281,12 +287,6 @@ def _main() -> None:
             }
             save_local_secrets_toml(secrets_file, new_secrets)
             st.success("Secrets committed to local `.streamlit/secrets.toml`!")
-        st.stop()
-
-    st.title("Combusto")
-    st.caption("Gun & Rocket Propellant Thermochemical, Ballistic & Environmental Engineering Suite — Desktop Pro")
-
-    if not check_web_password():
         st.stop()
 
     render_main_workbench(extra_editor_hook=_render_local_pubchem_nist_lookup)

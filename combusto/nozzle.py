@@ -139,16 +139,27 @@ def _solve_shifting_state_at_p(
     t_c: float,
     p_atm: float,
     t_hint: Optional[float] = None,
+    real_gas_fugacity: bool = False,
+    inert_gas: Optional[str] = None,
+    inert_moles: float = 0.0,
 ) -> Dict[str, Any]:
     """Solve shifting-equilibrium state at pressure `p_atm` with S(n_eq(T,P), T, P) = s_c."""
     p_eff = max(p_atm, 1e-5)
-    cond = CombustionConditions(temperature_k=298.15, pressure_atm=p_eff, mode="isobaric")
-    last_eq: Dict[str, CombustionResult] = {}
+    cond = CombustionConditions(
+        temperature_k=298.15,
+        pressure_atm=p_eff,
+        mode="isobaric",
+        inert_gas=inert_gas,
+        inert_moles=inert_moles,
+        real_gas_fugacity=real_gas_fugacity,
+    )
+    last_eq: Dict[str, Any] = {}
 
     def eval_s(t_val: float) -> float:
         res = solve_equilibrium(
             formulation, cond, pah_config, species_db=species_db, temperature_k=t_val
         )
+        last_eq["t"] = t_val
         last_eq["res"] = res
         _, s_val, _, _ = _mixture_enthalpy_entropy_j_per_g(
             res.species_moles, species_db, t_val, p_eff
@@ -180,9 +191,12 @@ def _solve_shifting_state_at_p(
         )
         t_p = float(opt.x)
 
-    eq_res = solve_equilibrium(
-        formulation, cond, pah_config, species_db=species_db, temperature_k=t_p
-    )
+    if "res" in last_eq and abs(last_eq.get("t", -1.0) - t_p) < 0.6:
+        eq_res = last_eq["res"]
+    else:
+        eq_res = solve_equilibrium(
+            formulation, cond, pah_config, species_db=species_db, temperature_k=t_p
+        )
     h_p, s_p, n_gas, a_sound = _mixture_enthalpy_entropy_j_per_g(
         eq_res.species_moles, species_db, t_p, p_eff
     )
@@ -201,6 +215,7 @@ def _solve_shifting_state_at_p(
         "velocity_m_s": vel,
         "sound_speed_m_s": a_sound,
         "mach": mach,
+        "rho_kg_m3": 1.0 / max(v_spec_m3_kg, 1e-12),
         "mass_flux_kg_m2_s": mass_flux,
         "n_gas_mol_per_g": n_gas,
         "mole_fractions": eq_res.species_mole_fractions,
@@ -215,6 +230,10 @@ def analyze_nozzle_expansion(
     pah_config: Optional[PAHAllocationConfig] = None,
     species_db: Optional[Dict[str, Species]] = None,
     n_profile_points: int = 12,
+    real_gas_fugacity: bool = False,
+    grain_temp_k: float = 298.15,
+    inert_gas: Optional[str] = None,
+    inert_moles: float = 0.0,
 ) -> Dict[str, Any]:
     """Compute Frozen-Composition vs. Shifting-Equilibrium 1D rocket nozzle performance.
 
@@ -231,7 +250,12 @@ def analyze_nozzle_expansion(
     ambient_p_atm = max(float(ambient_p_atm), 0.0)
 
     chamber_cond = CombustionConditions(
-        temperature_k=298.15, pressure_atm=pc_atm, mode="isobaric"
+        temperature_k=grain_temp_k,
+        pressure_atm=pc_atm,
+        mode="isobaric",
+        inert_gas=inert_gas,
+        inert_moles=inert_moles,
+        real_gas_fugacity=real_gas_fugacity,
     )
     res_c = solve_equilibrium_adiabatic(
         formulation, chamber_cond, pah_config, species_db=species_db, t_guess=2600.0, tol=0.5, max_iter=35
@@ -258,17 +282,23 @@ def analyze_nozzle_expansion(
         chamber_moles, species_db, s_c, h_c, t_c, float(opt_t_froz.x) * pc_atm
     )
 
-    # Shifting throat near pt_guess_ratio (bracketed with frozen throat hint)
+    shift_kwargs = dict(
+        real_gas_fugacity=real_gas_fugacity,
+        inert_gas=inert_gas,
+        inert_moles=inert_moles,
+    )
     opt_t_shift = minimize_scalar(
         lambda pr: -_solve_shifting_state_at_p(
-            formulation, pah_config, species_db, s_c, h_c, t_c, pr * pc_atm, t_hint=throat_froz["temp_k"]
+            formulation, pah_config, species_db, s_c, h_c, t_c, pr * pc_atm,
+            t_hint=throat_froz["temp_k"], **shift_kwargs,
         )["mass_flux_kg_m2_s"],
         bounds=(max(0.46, pt_guess_ratio - 0.06), min(0.66, pt_guess_ratio + 0.06)),
         method="bounded",
         options={"xatol": 3e-3, "maxiter": 10},
     )
     throat_shift = _solve_shifting_state_at_p(
-        formulation, pah_config, species_db, s_c, h_c, t_c, float(opt_t_shift.x) * pc_atm, t_hint=throat_froz["temp_k"]
+        formulation, pah_config, species_db, s_c, h_c, t_c, float(opt_t_shift.x) * pc_atm,
+        t_hint=throat_froz["temp_k"], **shift_kwargs,
     )
 
     # --- Exit Plane states at Pe ---
@@ -276,7 +306,8 @@ def analyze_nozzle_expansion(
         chamber_moles, species_db, s_c, h_c, t_c, pe_atm
     )
     exit_shift = _solve_shifting_state_at_p(
-        formulation, pah_config, species_db, s_c, h_c, t_c, pe_atm, t_hint=exit_froz["temp_k"]
+        formulation, pah_config, species_db, s_c, h_c, t_c, pe_atm,
+        t_hint=exit_froz["temp_k"], **shift_kwargs,
     )
 
     pc_pa = pc_atm * ATM_TO_PA
@@ -323,6 +354,7 @@ def analyze_nozzle_expansion(
     rows = []
     g_t_f = max(throat_froz["mass_flux_kg_m2_s"], 1e-9)
     g_t_s = max(throat_shift["mass_flux_kg_m2_s"], 1e-9)
+    prev_shift_st: Optional[Dict[str, Any]] = None
 
     for idx, p_st in enumerate(p_grid):
         if idx == 0:
@@ -344,8 +376,15 @@ def analyze_nozzle_expansion(
             })
             continue
 
-        sf = _solve_frozen_state_at_p(chamber_moles, species_db, s_c, h_c, t_c, float(p_st))
-        ss = _solve_shifting_state_at_p(formulation, pah_config, species_db, s_c, h_c, t_c, float(p_st), t_hint=sf["temp_k"])
+        if idx == len(p_grid) - 1:
+            sf, ss = exit_froz, exit_shift
+        else:
+            sf = _solve_frozen_state_at_p(chamber_moles, species_db, s_c, h_c, t_c, float(p_st))
+            ss = _solve_shifting_state_at_p(
+                formulation, pah_config, species_db, s_c, h_c, t_c, float(p_st),
+                t_hint=sf["temp_k"], **shift_kwargs,
+            )
+            prev_shift_st = ss
         mf_s = ss["mole_fractions"]
         rows.append({
             "pressure_atm": float(p_st),
@@ -361,6 +400,14 @@ def analyze_nozzle_expansion(
             "x_H2_shifting": float(mf_s.get("H2", 0.0)),
             "x_H2O_shifting": float(mf_s.get("H2O", 0.0)),
         })
+
+    # Compute equilibrium thermodynamic sound speed a_eq = sqrt((dP/drho)_S) along the exit station
+    if prev_shift_st is not None and exit_shift["rho_kg_m3"] != prev_shift_st["rho_kg_m3"]:
+        dp_pa = (prev_shift_st["p_atm"] - exit_shift["p_atm"]) * ATM_TO_PA
+        drho = prev_shift_st["rho_kg_m3"] - exit_shift["rho_kg_m3"]
+        if dp_pa > 0 and drho > 0:
+            a_eq_exit = math.sqrt(dp_pa / drho)
+            shift_metrics["exit_mach"] = float(exit_shift["velocity_m_s"] / max(a_eq_exit, 1.0))
 
     profile_df = pd.DataFrame(rows)
 

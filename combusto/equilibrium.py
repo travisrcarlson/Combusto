@@ -59,46 +59,6 @@ def _find_feasible_start(
     return n0
 
 
-def _gibbs_objective(
-    n_vec: np.ndarray,
-    small_species: List[Species],
-    T: float,
-    P: float,
-    scale: float,
-    real_gas_fugacity: bool = False,
-) -> float:
-    """Compute total Gibbs free energy (scaled), with optional BLAKE/Virial fugacity."""
-    n = n_vec * scale
-    n = np.maximum(n, 1e-30)
-    n_total_gas = sum(
-        n[i] for i in range(len(small_species)) if small_species[i].phase == "gas"
-    )
-    if n_total_gas < 1e-30:
-        n_total_gas = 1e-30
-
-    p_pa = P * 101325.0
-    rt = R_GAS * T
-
-    G_total = 0.0
-    for i, sp in enumerate(small_species):
-        ni = n[i]
-        if ni < 1e-30:
-            continue
-        G0 = gibbs(sp, T, 1.0)
-        if sp.phase == "gas":
-            x_i = ni / n_total_gas
-            mu_i = G0 + rt * math.log(max(x_i * P, 1e-30))
-            if real_gas_fugacity and P > 1.0 and sp.molar_covolume_cm3_mol > 0.0:
-                # Truncated 2nd-Virial / Noble-Abel fugacity: ln(phi_i) = b_i * P / (R * T)
-                b_i_m3 = sp.molar_covolume_cm3_mol * 1e-6
-                ln_phi_i = min((b_i_m3 * p_pa) / max(rt, 1.0), 4.0)
-                mu_i += rt * ln_phi_i
-        else:
-            mu_i = G0
-        G_total += ni * mu_i
-    return G_total
-
-
 def solve_equilibrium(
     formulation: Formulation,
     conditions: CombustionConditions,
@@ -107,6 +67,9 @@ def solve_equilibrium(
     temperature_k: Optional[float] = None,
 ) -> CombustionResult:
     """Run the full combustion equilibrium calculation."""
+    if not formulation.components:
+        return CombustionResult(converged=False)
+
     if species_db is None:
         species_db = load_species_db()
 
@@ -138,36 +101,34 @@ def solve_equilibrium(
 
     # --- Step 4: Build equilibrium problem ---
     adjusted_elem = dict(elem_per_gram)
-    adjusted_elem["C"] = remaining_c
-    adjusted_elem["H"] = remaining_h
+    if "C" in adjusted_elem:
+        adjusted_elem["C"] = remaining_c
+    if "H" in adjusted_elem:
+        adjusted_elem["H"] = remaining_h
 
-    formulation_elements = set(adjusted_elem.keys())
+    # Drop zero/trace elements BEFORE selecting candidate species so unconstrained species never enter SLSQP
+    active_elements = {e for e, amt in adjusted_elem.items() if amt > 1e-20}
 
-    # Select candidate species (exclude PAHs, species with wrong elements,
-    # and condensed species that shouldn't exist at this temperature)
+    # Select candidate species (exclude PAHs, species with absent/wrong elements,
+    # and condensed species outside their physical temperature domain)
     small_species: List[Species] = []
     for sp in species_db.values():
         if sp.category in ("pah", "lump"):
             continue
         sp_elements = set(parse_formula(sp.formula).keys())
-        if not sp_elements.issubset(formulation_elements):
+        if not sp_elements or not sp_elements.issubset(active_elements):
             continue
-        # Skip condensed-phase species at high temperatures
-        # (e.g., liquid water above 373 K, solid oxides above ~3000 K)
         if sp.phase == "condensed":
             if sp.formula == "H2O" and T > 373.0:
                 continue
             if T > sp.t_high:
                 continue
+            if sp.t_low > 400.0 and T < sp.t_low:
+                continue
         small_species.append(sp)
 
-    if not small_species:
-        for name in ["CO2", "CO", "H2O", "H2", "N2"]:
-            if name in species_db:
-                small_species.append(species_db[name])
-
     # Elements to balance (only those with non-negligible amounts)
-    elements = sorted(e for e in formulation_elements if adjusted_elem.get(e, 0.0) > 1e-20)
+    elements = sorted(active_elements)
 
     n_sp = len(small_species)
     n_el = len(elements)
@@ -353,20 +314,29 @@ def solve_equilibrium(
         c_solid_j_g_k = 1.35
         h_react += c_solid_j_g_k * (t_init_grain - 298.15)
 
-    # Optional inert purge/pressurant gas enthalpy at initial temperature
+    # Optional inert purge/pressurant gas enthalpy and initial gas-phase PV correction for U_react
+    u_react = h_react
+    n_inert_gas_initial = 0.0
     if conditions.inert_gas and inert_moles_eff > 0.0 and conditions.inert_gas in species_db:
+        inert_sp = species_db[conditions.inert_gas]
         t_inert = t_init_grain if 180.0 <= t_init_grain <= 550.0 else 298.15
-        h_react += inert_moles_eff * enthalpy(species_db[conditions.inert_gas], t_inert)
+        h_inert = inert_moles_eff * enthalpy(inert_sp, t_inert)
+        h_react += h_inert
+        u_react += h_inert
+        if inert_sp.phase == "gas":
+            n_inert_gas_initial = inert_moles_eff
+            u_react -= inert_moles_eff * R_GAS * t_inert
 
     # Convert reactant enthalpy/internal-energy from J/g_propellant to J/mol_product_mixture
     h_react_per_mol_prod = h_react / total_moles if total_moles > 0 else 0.0
+    u_react_per_mol_prod = u_react / total_moles if total_moles > 0 else 0.0
 
     all_species_list = [species_lookup[n] for n in all_moles.keys()]
     t_ad = adiabatic_flame_temperature(
         all_species_list, mole_fracs, h_react_per_mol_prod, T_guess=2500.0, p_atm=P
     )
     t_v = isochoric_flame_temperature(
-        all_species_list, mole_fracs, h_react_per_mol_prod, T_guess=max(t_ad * 1.15, 2600.0)
+        all_species_list, mole_fracs, u_react_per_mol_prod, T_guess=max(t_ad * 1.15, 2600.0)
     )
 
     t_ref_thermo = t_v if conditions.mode == "isochoric" else t_ad
@@ -463,8 +433,11 @@ def solve_equilibrium(
     if conditions.mode != "bomb_calorimeter" and "H2O" in species_lookup and species_lookup["H2O"].phase == "gas":
         n_gas_298 -= all_moles.get("H2O", 0.0)
 
-    delta_u_298 = delta_h_298 - n_gas_298 * R_GAS * 298.15
+    delta_n_gas_298 = n_gas_298 - n_inert_gas_initial
+    delta_u_298 = delta_h_298 - delta_n_gas_298 * R_GAS * 298.15
     heat_of_explosion_j_per_g = -1.0 * delta_u_298
+
+    max_eb_err = max(elem_balance.values(), default=0.0)
 
     return CombustionResult(
         species_moles=all_moles,
@@ -492,6 +465,7 @@ def solve_equilibrium(
         specific_impulse_s=specific_impulse_s,
         gas_volume_l_per_kg=gas_volume_l_per_kg,
         compressibility_z=compressibility_z,
+        converged=bool(max_eb_err < 1.0),
     )
 
 
@@ -505,6 +479,9 @@ def solve_equilibrium_adiabatic(
     max_iter: int = 30,
 ) -> CombustionResult:
     """Self-consistent adiabatic (isobaric T_p or isochoric T_v) + equilibrium solver."""
+    if not formulation.components:
+        return CombustionResult(converged=False)
+
     if species_db is None:
         species_db = load_species_db()
 
@@ -512,6 +489,10 @@ def solve_equilibrium_adiabatic(
     converged = False
     result = None
     relax = 0.5
+    t_lo: Optional[float] = None
+    f_lo: Optional[float] = None
+    t_hi: Optional[float] = None
+    f_hi: Optional[float] = None
     work_cond = CombustionConditions(
         temperature_k=conditions.temperature_k,
         pressure_atm=conditions.pressure_atm,
@@ -535,19 +516,37 @@ def solve_equilibrium_adiabatic(
         if work_cond.mode == "isochoric":
             T_new_raw = result.isochoric_flame_temp_k
             if 0.0 < result.computed_pressure_atm < 1e6:
-                work_cond.pressure_atm = 0.5 * work_cond.pressure_atm + 0.5 * result.computed_pressure_atm
+                p_old = work_cond.pressure_atm
+                work_cond.pressure_atm = 0.5 * p_old + 0.5 * result.computed_pressure_atm
+                if abs(work_cond.pressure_atm - p_old) / max(p_old, 1.0) > 0.15:
+                    t_lo = f_lo = t_hi = f_hi = None
         else:
             T_new_raw = result.adiabatic_flame_temp_k
 
-        T_new = T + relax * (T_new_raw - T)
-        T_new = max(T_new, 300.0)
-        T_new = min(T_new, 6000.0)
+        f = T_new_raw - T
+        if f > 0.0 and (t_lo is None or T > t_lo):
+            t_lo, f_lo = T, f
+        elif f < 0.0 and (t_hi is None or T < t_hi):
+            t_hi, f_hi = T, f
 
-        if abs(T_new - T) < tol:
+        if abs(f) < tol or (t_lo is not None and t_hi is not None and (t_hi - t_lo) < tol):
             converged = True
-            T = T_new
+            t_final = T_new_raw if abs(f) < tol else 0.5 * (t_lo + t_hi)
+            T = max(300.0, min(6000.0, t_final))
             break
 
+        if t_lo is not None and t_hi is not None and (t_hi - t_lo) > 1e-9:
+            denom = f_hi - f_lo
+            if abs(denom) > 1e-12:
+                t_sec = t_lo - f_lo * (t_hi - t_lo) / denom
+            else:
+                t_sec = 0.5 * (t_lo + t_hi)
+            pad = 0.1 * (t_hi - t_lo)
+            T_new = max(t_lo + pad, min(t_hi - pad, t_sec))
+        else:
+            T_new = T + relax * f
+
+        T_new = max(300.0, min(6000.0, T_new))
         T = T_new
 
     if converged and abs(T - result.temperature_k) > 0.1:
@@ -556,7 +555,8 @@ def solve_equilibrium_adiabatic(
             species_db=species_db, temperature_k=T,
         )
 
-    result.converged = converged
+    max_eb_err = max(result.element_balance.values(), default=0.0) if result.element_balance else 0.0
+    result.converged = bool(converged and max_eb_err < 1.0)
     result.iterations = iteration  # noqa: F821 — set in loop
 
     return result

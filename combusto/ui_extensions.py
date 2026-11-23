@@ -123,7 +123,7 @@ def render_noble_abel_isentrope_section(
                 yaxis=dict(title="Pressure (MPa)", type="log"),
                 height=380,
             )
-            st.plotly_chart(fig_pv, use_container_width=True)
+            st.plotly_chart(fig_pv, width="stretch")
         with ig2:
             fig_tw = go.Figure()
             fig_tw.add_trace(go.Scatter(
@@ -141,7 +141,7 @@ def render_noble_abel_isentrope_section(
                 yaxis2=dict(title="Gas Temperature (K)", overlaying="y", side="right"),
                 height=380,
             )
-            st.plotly_chart(fig_tw, use_container_width=True)
+            st.plotly_chart(fig_tw, width="stretch")
 
 
 def render_closed_vessel_tab(formulation: Formulation) -> None:
@@ -226,7 +226,7 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
                 yaxis2=dict(title="dP/dt (GPa/s)", overlaying="y", side="right"),
                 height=390,
             )
-            st.plotly_chart(fig_cv1, use_container_width=True)
+            st.plotly_chart(fig_cv1, width="stretch")
         with cg2:
             fig_cv2 = go.Figure()
             fig_cv2.add_trace(go.Scatter(
@@ -243,7 +243,7 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
                 yaxis_title="Dynamic Vivacity L (MPa⁻¹·s⁻¹)",
                 height=390,
             )
-            st.plotly_chart(fig_cv2, use_container_width=True)
+            st.plotly_chart(fig_cv2, width="stretch")
 
     st.divider()
     st.subheader("📐 Experimental Abel EOS (F, η) & Burn Rate (a, n) Linear Calibrator")
@@ -254,22 +254,22 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
         {"Loading Density Δ (g/cm³)": 0.20, "Peak Pressure P_max (MPa)": 278.5, "Burn Pressure P (MPa)": 175.0, "Measured Burn Rate r (mm/s)": 99.8},
         {"Loading Density Δ (g/cm³)": 0.25, "Peak Pressure P_max (MPa)": 382.0, "Burn Pressure P (MPa)": 260.0, "Measured Burn Rate r (mm/s)": 140.1},
     ])
-    edited_cal_df = st.data_editor(default_cal_df, num_rows="dynamic", use_container_width=True, key="cv_cal_editor")
+    edited_cal_df = st.data_editor(default_cal_df, num_rows="dynamic", width="stretch", key="cv_cal_editor")
 
     if st.button("▶ Fit Noble-Abel (F, η) & Saint-Robert (a, n)", type="primary", key="btn_fit_cv"):
-        if len(edited_cal_df) < 2:
-            st.error("At least 2 rows are required for linear regression.")
-        else:
+        try:
             fit_out = calibrate_abel_eos_and_burn_rate(
                 loading_densities_g_cm3=edited_cal_df["Loading Density Δ (g/cm³)"].tolist(),
                 peak_pressures_mpa=edited_cal_df["Peak Pressure P_max (MPa)"].tolist(),
                 burn_pressures_mpa=edited_cal_df["Burn Pressure P (MPa)"].tolist(),
                 burn_rates_mm_s=edited_cal_df["Measured Burn Rate r (mm/s)"].tolist(),
             )
-            st.session_state["cv_fit_out"] = fit_out
+            suite["cv_fit_out"] = fit_out
+        except ValueError as exc:
+            st.error(str(exc))
 
-    if "cv_fit_out" in st.session_state:
-        fit_out = st.session_state["cv_fit_out"]
+    if "cv_fit_out" in suite:
+        fit_out = suite["cv_fit_out"]
         fc1, fc2, fc3, fc4 = st.columns(4)
         fc1.metric("Fitted Force Constant F", f"{fit_out['fitted_F_j_per_g']:.1f} J/g", delta=f"R² = {fit_out['r2_abel']:.4f}")
         fc2.metric("Fitted Covolume η", f"{fit_out['fitted_covolume_cm3_per_g']:.3f} cm³/g")
@@ -296,7 +296,7 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
                 yaxis_title="P_max / Δ (J/g)",
                 height=360,
             )
-            st.plotly_chart(fig_ab, use_container_width=True)
+            st.plotly_chart(fig_ab, width="stretch")
         with fg2:
             bdf = fit_out["burn_df"]
             fig_br = go.Figure()
@@ -316,7 +316,7 @@ def render_closed_vessel_tab(formulation: Formulation) -> None:
                 yaxis=dict(title="Burn Rate r (mm/s)", type="log"),
                 height=360,
             )
-            st.plotly_chart(fig_br, use_container_width=True)
+            st.plotly_chart(fig_br, width="stretch")
 
 
 def render_smoke_toxicity_tab(
@@ -392,7 +392,7 @@ def render_smoke_toxicity_tab(
         tm4.metric("Min Recommended Ventilation", f"{tox_out['recommended_ventilation_m3_min']:.1f} m³/min")
 
         st.markdown("#### Workplace Gaseous Pollutant Inventory vs. NIOSH REL / OSHA PEL / IDLH")
-        st.dataframe(tox_out["tox_df"], use_container_width=True, hide_index=True)
+        st.dataframe(tox_out["tox_df"], width="stretch", hide_index=True)
 
         tg1, tg2 = st.columns(2)
         with tg1:
@@ -413,7 +413,7 @@ def render_smoke_toxicity_tab(
                 barmode="group",
                 height=390,
             )
-            st.plotly_chart(fig_tx, use_container_width=True)
+            st.plotly_chart(fig_tx, width="stretch")
         with tg2:
             fig_smk = go.Figure(data=go.Contour(
                 z=tox_out["smoke_matrix"],
@@ -434,7 +434,7 @@ def render_smoke_toxicity_tab(
                 yaxis_title="Relative Humidity (%)",
                 height=390,
             )
-            st.plotly_chart(fig_smk, use_container_width=True)
+            st.plotly_chart(fig_smk, width="stretch")
 
 
 def render_stability_tab(formulation: Formulation) -> None:
@@ -516,7 +516,7 @@ def render_stability_tab(formulation: Formulation) -> None:
                 yaxis_title="Stabilizer Mass Fraction (wt%)",
                 height=380,
             )
-            st.plotly_chart(fig_dep, use_container_width=True)
+            st.plotly_chart(fig_dep, width="stretch")
         with sg2:
             cdf = stab_out["cookoff_df"]
             fig_ck = go.Figure()
@@ -539,7 +539,7 @@ def render_stability_tab(formulation: Formulation) -> None:
                 yaxis_title="Critical Temperature T_crit (°C)",
                 height=380,
             )
-            st.plotly_chart(fig_ck, use_container_width=True)
+            st.plotly_chart(fig_ck, width="stretch")
 
 
 def render_nc_nitration_calculator(formulation: Formulation) -> None:
@@ -574,7 +574,7 @@ def render_nc_nitration_calculator(formulation: Formulation) -> None:
         nc_info = synthesize_nitrocellulose(nc_pct)
         with nc3:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("➕ Inject NC Grade", use_container_width=True, key="btn_inject_nc"):
+            if st.button("➕ Inject NC Grade", width="stretch", key="btn_inject_nc"):
                 formulation.components.append(
                     PropellantComponent(
                         name=f"Nitrocellulose ({nc_pct:.2f}% N)",
@@ -599,7 +599,6 @@ def render_benchmarks_and_grounding_tab() -> None:
     from .grounding import (
         METHODOLOGY_CITATIONS,
         get_ingredient_provenance_df,
-        run_benchmark_validation_suite,
         validate_epa_ap42_emissions,
     )
 
@@ -629,7 +628,7 @@ def render_benchmarks_and_grounding_tab() -> None:
         bm3.metric("BLAKE Covolume η MAPE", f"{bm_out['mape_covolume_pct']:.2f}%", delta="Σ nᵢbᵢ vs Measured", delta_color="off")
         bm4.metric("Calorimetric Qv MAPE", f"{bm_out['mape_qv_pct']:.2f}%", delta="vs Bomb Calorimetry", delta_color="off")
 
-        st.dataframe(bdf, use_container_width=True, hide_index=True)
+        st.dataframe(bdf, width="stretch", hide_index=True)
 
         pg1, pg2 = st.columns(2)
         with pg1:
@@ -654,7 +653,7 @@ def render_benchmarks_and_grounding_tab() -> None:
                 yaxis_title="Combusto Predicted T (K)",
                 height=390,
             )
-            st.plotly_chart(fig_pt, use_container_width=True)
+            st.plotly_chart(fig_pt, width="stretch")
 
         with pg2:
             f_min, f_max = 850.0, 1280.0
@@ -678,7 +677,7 @@ def render_benchmarks_and_grounding_tab() -> None:
                 yaxis_title="Combusto Predicted F (J/g)",
                 height=390,
             )
-            st.plotly_chart(fig_pf, use_container_width=True)
+            st.plotly_chart(fig_pf, width="stretch")
 
     st.divider()
     st.subheader("🌫️ US EPA AP-42 Chapter 15 & US Army AEC Emission Factor Grounding")
@@ -693,7 +692,7 @@ def render_benchmarks_and_grounding_tab() -> None:
         ep_p_freeze = st.slider("Muzzle Exit Freeze Pressure (atm)", 5.0, 120.0, 35.0, 5.0, key="ep_pfreeze")
     with ep3:
         st.markdown("<br>", unsafe_allow_html=True)
-        run_epa = st.button("▶ Compare vs. EPA AP-42 Table 15.1", use_container_width=True, key="btn_run_epa")
+        run_epa = st.button("▶ Compare vs. EPA AP-42 Table 15.1", width="stretch", key="btn_run_epa")
 
     if run_epa or "epa_val_out" in st.session_state:
         if run_epa:
@@ -703,18 +702,18 @@ def render_benchmarks_and_grounding_tab() -> None:
                 species_db=st.session_state.species_db,
             )
         epa_df = st.session_state["epa_val_out"]["emissions_df"]
-        st.dataframe(epa_df, use_container_width=True, hide_index=True)
+        st.dataframe(epa_df, width="stretch", hide_index=True)
 
     st.divider()
     st.subheader("🔎 Traceable Thermochemical Provenance & Primary Bibliography")
     prov_tab1, prov_tab2, prov_tab3 = st.tabs([
         "🧪 Grounded Ingredients (CAS, ρ₀, ΔHf)",
-        "⚛️ Product Species & BLAKE Covolumes (59 Species)",
+        f"⚛️ Product Species & BLAKE Covolumes ({len(st.session_state.species_db)} Species)",
         "📖 Peer-Reviewed Methodology Citations",
     ])
     with prov_tab1:
         ing_df = get_ingredient_provenance_df()
-        st.dataframe(ing_df, use_container_width=True, hide_index=True)
+        st.dataframe(ing_df, width="stretch", hide_index=True)
     with prov_tab2:
         sp_rows = []
         for sp in st.session_state.species_db.values():
@@ -729,6 +728,127 @@ def render_benchmarks_and_grounding_tab() -> None:
                 "Molar Covolume bᵢ (cm³/mol)": sp.molar_covolume_cm3_mol,
                 "Thermochemical Source": sp.source,
             })
-        st.dataframe(pd.DataFrame(sp_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(sp_rows), width="stretch", hide_index=True)
     with prov_tab3:
-        st.dataframe(pd.DataFrame(METHODOLOGY_CITATIONS), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(METHODOLOGY_CITATIONS), width="stretch", hide_index=True)
+
+
+def render_srm_tab(formulation: Formulation) -> None:
+    """Render the Solid Rocket Motor (SRM) Grain Burnback & Thrust-Time F(t) Simulator."""
+    from .rocket_motor import simulate_solid_rocket_motor
+
+    with st.expander("ℹ️  How to use — Solid Rocket Motor (SRM) Burnback & Thrust-Time Simulator", expanded=False):
+        st.markdown("""
+        **Predict transient chamber pressure $P_c(t)$, thrust $F(t)$, total impulse, and NAR/Tripoli motor classification.**
+        - Auto-populates $c^*$, $\\gamma$, $C_F$, and nozzle expansion ratio $\\epsilon = A_e / A_t$ from your **Nozzle Isp (Shifting vs. Frozen)** solve when available.
+        - Supports **BATES Multi-Segment**, **End-Burner**, and **6-Point Star** grain geometries with chamber-fill & blowdown integration.
+        """)
+    st.subheader("🛰️ Solid Rocket Motor (SRM) Grain-Burnback & Thrust-Time Simulator")
+    if not formulation.components:
+        st.info("Define a formulation first.")
+        return
+
+    suite = get_formulation_suite(formulation.name)
+    noz = suite.get("nozzle_out")
+    res_cur = st.session_state.get("results", {}).get(formulation.name)
+
+    def_cstar = 1560.0
+    def_cf_amb = 1.60
+    def_cf_vac = 1.76
+    def_eps = 10.0
+    def_gamma = 1.20
+    if noz and "shifting" in noz:
+        sh = noz["shifting"]
+        def_cstar = float(sh["c_star_m_s"])
+        def_cf_amb = float(sh["cf_ambient"])
+        def_cf_vac = float(sh["cf_vacuum"])
+        def_eps = float(sh["area_ratio_ae_at"])
+        ch_res = noz.get("chamber_result")
+        if ch_res is not None and ch_res.gamma > 1.02:
+            def_gamma = float(ch_res.gamma)
+    elif res_cur is not None and res_cur.gamma > 1.02:
+        def_gamma = float(res_cur.gamma)
+        if res_cur.specific_impulse_s > 80.0:
+            def_cstar = float(max(900.0, res_cur.specific_impulse_s * 9.80665 / 1.55))
+
+    fname_tag = formulation.name
+    sc1, sc2, sc3 = st.columns(3)
+    with sc1:
+        st.markdown("**Thermochemistry & Nozzle Hardware**")
+        srm_cstar = st.number_input("Characteristic Velocity c* (m/s)", 600.0, 2600.0, def_cstar, 10.0, key=f"srm_cstar_{fname_tag}")
+        srm_gamma = st.number_input("Exhaust Specific Heat Ratio γ", 1.05, 1.65, def_gamma, 0.01, key=f"srm_gamma_{fname_tag}")
+        srm_cf_vac = st.number_input("Vacuum Thrust Coeff C_F,vac", 1.10, 2.30, def_cf_vac, 0.02, key=f"srm_cfv_{fname_tag}")
+        srm_eps = st.number_input("Nozzle Area Ratio ε = Ae/At", 1.2, 80.0, def_eps, 0.5, key=f"srm_eps_{fname_tag}")
+    with sc2:
+        st.markdown("**Grain Geometry & Ballistics**")
+        srm_geom_map = {
+            "bates": "BATES Multi-Segment (Neutral Cylindrical + Ends)",
+            "star": "6-Point Star Core (Neutral / High-Loading)",
+            "end_burner": "End-Burner Cigarette (Long-Duration Constant Area)",
+        }
+        srm_geom = st.selectbox("Grain Configuration", list(srm_geom_map.keys()), format_func=lambda k: srm_geom_map[k], key="srm_geom")
+        srm_od = st.number_input("Grain Outer Diameter (mm)", 20.0, 1500.0, 150.0, 5.0, key="srm_od")
+        srm_id = st.number_input("Core Bore Diameter (mm)", 5.0, 600.0, 45.0, 5.0, key="srm_id", disabled=(srm_geom == "end_burner"))
+        srm_len = st.number_input("Total Grain Length (mm)", 30.0, 5000.0, 600.0, 20.0, key="srm_len")
+    with sc3:
+        st.markdown("**Propellant Burn Law & Nozzle Throat**")
+        srm_segs = st.number_input("Number of BATES Segments", 1, 16, 3, 1, key="srm_segs", disabled=(srm_geom != "bates"))
+        srm_dt = st.number_input("Throat Diameter Dt (mm)", 4.0, 500.0, 28.0, 1.0, key="srm_dt")
+        srm_a = st.number_input("Burn Rate Coeff a (mm/s/MPaⁿ)", 0.5, 30.0, 4.2, 0.2, key="srm_a")
+        srm_n = st.number_input("Pressure Exponent n", 0.15, 0.90, 0.35, 0.02, key="srm_n")
+        srm_rhop = st.number_input("Solid Grain Density (g/cm³)", 1.10, 2.20, 1.76, 0.02, key="srm_rho")
+
+    if st.button("▶ Run Solid Rocket Motor Simulation", type="primary", key="btn_run_srm"):
+        with st.spinner("Integrating SRM chamber fill, grain regression & blowdown ODEs..."):
+            srm_out = simulate_solid_rocket_motor(
+                c_star_m_s=srm_cstar,
+                cf_ambient=def_cf_amb,
+                cf_vacuum=srm_cf_vac,
+                gamma=srm_gamma,
+                propellant_density_g_cm3=srm_rhop,
+                burn_rate_a=srm_a,
+                burn_rate_n=srm_n,
+                grain_geometry=srm_geom,
+                grain_outer_diam_mm=srm_od,
+                core_diam_mm=srm_id,
+                grain_length_mm=srm_len,
+                n_segments=int(srm_segs),
+                throat_diam_mm=srm_dt,
+                expansion_ratio_eps=srm_eps,
+            )
+            suite["srm_out"] = srm_out
+
+    if "srm_out" in suite:
+        srm = suite["srm_out"]
+        sm1, sm2, sm3, sm4 = st.columns(4)
+        sm1.metric("NAR / Tripoli Designation", srm["motor_class"], delta=f"I_tot = {srm['total_impulse_n_s']:,.0f} N·s", delta_color="off")
+        sm2.metric("Peak Chamber Pressure", f"{srm['max_pressure_mpa']:.2f} MPa", delta=f"Mean = {srm['mean_pressure_mpa']:.2f} MPa", delta_color="off")
+        sm3.metric("Peak Sea-Level Thrust", f"{srm['max_thrust_n']:,.0f} N", delta=f"Mean = {srm['mean_thrust_n']:,.0f} N", delta_color="off")
+        sm4.metric("Delivered Specific Impulse", f"{srm['delivered_isp_s']:.1f} s", delta=f"Action Time = {srm['action_time_s']:.2f} s ({srm['propellant_mass_kg']:.2f} kg)", delta_color="off")
+
+        sdf = srm["trace_df"]
+        sg1, sg2 = st.columns(2)
+        with sg1:
+            fig_sp = go.Figure()
+            fig_sp.add_trace(go.Scatter(x=sdf["time_s"], y=sdf["pressure_mpa"], name="Chamber Pressure Pc (MPa)", line=dict(color="#00f0ff", width=2.5)))
+            fig_sp.add_trace(go.Scatter(x=sdf["time_s"], y=sdf["thrust_n"], name="Thrust F(t) (N)", yaxis="y2", line=dict(color="#00ff88", width=2.5)))
+            fig_sp.update_layout(
+                title="SRM Chamber Pressure Pc(t) & Thrust F(t) Curve",
+                xaxis_title="Time (s)",
+                yaxis=dict(title="Pressure (MPa)"),
+                yaxis2=dict(title="Thrust (N)", overlaying="y", side="right"),
+                height=390,
+            )
+            st.plotly_chart(fig_sp, width="stretch")
+        with sg2:
+            fig_sk = go.Figure()
+            fig_sk.add_trace(go.Scatter(x=sdf["time_s"], y=sdf["kn"], name="Klemmung Ratio Kn = Ab/At", line=dict(color="#ffaa00", width=2.5)))
+            fig_sk.add_trace(go.Scatter(x=sdf["time_s"], y=sdf["mass_flow_kg_s"], name="Nozzle Mass Flow (kg/s)", yaxis="y2", line=dict(color="#ff5566", dash="dot", width=2)))
+            fig_sk.update_layout(
+                title="Grain Klemmung Ratio Kn(t) & Nozzle Mass Flow Rate",
+                xaxis_title="Time (s)",
+                yaxis=dict(title="Klemmung Ratio Kn"),
+                yaxis2=dict(title="Mass Flow (kg/s)", overlaying="y", side="right"),
+                height=390,
+            )
+            st.plotly_chart(fig_sk, width="stretch")

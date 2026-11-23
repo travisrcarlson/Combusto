@@ -6,7 +6,9 @@ Run with: streamlit run app.py
 
 from __future__ import annotations
 
+import hmac
 import io
+import os
 import zipfile
 from pathlib import Path
 
@@ -83,7 +85,8 @@ def _main() -> None:
 
     with st.sidebar.expander("🛠️ Developer Pro Portal", expanded=False):
         dev_pass = st.text_input("Enter Developer Password:", type="password", key="dev_pass")
-        if dev_pass == "Freya":
+        expected_dev_pw = os.environ.get("COMBUSTO_DEV_PASSWORD", "Freya")
+        if dev_pass and hmac.compare_digest(dev_pass, expected_dev_pw):
             st.success("Authorized. Local Desktop Pro Build Unlocked.")
             st.download_button(
                 label="📥 Download Combusto Desktop (.zip)",
@@ -91,6 +94,7 @@ def _main() -> None:
                 file_name="Combusto_Pro_Desktop.zip",
                 mime="application/zip",
                 type="primary",
+                width="stretch",
             )
         elif dev_pass:
             st.error("Incorrect password.")

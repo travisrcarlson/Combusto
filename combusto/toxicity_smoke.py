@@ -28,6 +28,7 @@ PAH_BA_P_TEF: Dict[str, float] = {
     "pyrene": 0.001,
     "chrysene": 0.01,
     "benzo[a]pyrene": 1.0,
+    "benzo_a_pyrene": 1.0,
     "coronene": 0.01,
     "soot_precursor": 0.05,
 }
@@ -42,6 +43,8 @@ TOXIC_SPECIES_LIMITS: Dict[str, Dict[str, float]] = {
     "NH3": {"mw": 17.03, "osha_pel_mg_m3": 35.0, "niosh_rel_mg_m3": 18.0, "idlh_mg_m3": 210.0},
     "HCl": {"mw": 36.46, "osha_pel_mg_m3": 7.0, "niosh_rel_mg_m3": 7.0, "idlh_mg_m3": 75.0},
     "HF": {"mw": 20.01, "osha_pel_mg_m3": 2.5, "niosh_rel_mg_m3": 2.5, "idlh_mg_m3": 25.0},
+    "H2S": {"mw": 34.08, "osha_pel_mg_m3": 28.0, "niosh_rel_mg_m3": 15.0, "idlh_mg_m3": 140.0},
+    "SO2": {"mw": 64.06, "osha_pel_mg_m3": 13.0, "niosh_rel_mg_m3": 5.0, "idlh_mg_m3": 262.0},
 }
 
 
@@ -127,20 +130,37 @@ def analyze_toxicity_and_smoke(
     #    plus high-T alkali/boron/metal vapors like KOH, KCl, NaOH, HBO2 that nucleate into solid
     #    salt/oxide aerosol upon plume cooling to ambient — capturing the K2SO4/KNO3 flash-vs-smoke tradeoff)
     _PRIMARY_PARTICULATE_SPECIES = (
-        "C(gr)", "C(s)", "soot_C", "soot_precursor",
+        "C(gr)", "C(s)",
         "Al2O3", "MgO", "B2O3", "Fe2O3", "CuO", "PbO",
-        "CaO", "CaCO3", "BaO", "K2CO3", "K2SO4", "Na2CO3",
+        "CaO", "CaCO3", "BaO", "K2CO3", "K2SO4", "K2S", "Na2CO3",
         "KOH", "KCl", "KF", "NaOH", "HBO2", "AlF3",
     )
-    solid_particulate_mf = sum(
-        result.species_mass_fractions.get(sp_n, 0.0) for sp_n in _PRIMARY_PARTICULATE_SPECIES
-    ) + (total_pah_mg_per_g / 1000.0)
+    pah_names = {str(p.get("name", "")) for p in result.pah_details}
+    non_pah_solid_mf = sum(
+        result.species_mass_fractions.get(sp_n, 0.0)
+        for sp_n in _PRIMARY_PARTICULATE_SPECIES
+        if sp_n not in pah_names
+    )
+    for lump_sp in ("soot_C", "soot_precursor"):
+        if lump_sp not in pah_names:
+            non_pah_solid_mf += result.species_mass_fractions.get(lump_sp, 0.0)
+    solid_particulate_mf = non_pah_solid_mf + (total_pah_mg_per_g / 1000.0)
     primary_smoke_g_per_kg = solid_particulate_mf * 1000.0
 
     # 2. Secondary Smoke: H2O + HCl/HF vapor condensation upon cooling into humid air
-    x_h2o = result.species_mole_fractions.get("H2O", 0.0)
-    x_hcl = result.species_mole_fractions.get("HCl", 0.0)
-    x_hf = result.species_mole_fractions.get("HF", 0.0)
+    # Re-normalize H2O/HCl/HF on gas-phase basis when condensed species are present
+    condensed_mf_sum = sum(
+        result.species_mole_fractions.get(c_sp, 0.0)
+        for c_sp in (
+            "C(gr)", "C(s)", "soot_C", "soot_precursor", "H2O(l)",
+            "Al2O3", "MgO", "B2O3", "Fe2O3", "CuO", "PbO",
+            "CaO", "CaCO3", "BaO", "K2CO3", "K2SO4", "K2S", "Na2CO3",
+        )
+    )
+    gas_mol_frac_denom = max(1e-3, 1.0 - condensed_mf_sum)
+    x_h2o = result.species_mole_fractions.get("H2O", 0.0) / gas_mol_frac_denom
+    x_hcl = result.species_mole_fractions.get("HCl", 0.0) / gas_mol_frac_denom
+    x_hf = result.species_mole_fractions.get("HF", 0.0) / gas_mol_frac_denom
 
     def _secondary_condensation_index(t_c: float, rh_pct: float) -> float:
         # Arden Buck saturation vapor pressure of water (kPa)

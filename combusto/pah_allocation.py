@@ -101,12 +101,14 @@ def allocate_pahs(
     h_used = 0.0
 
     for formula_key, weight in norm_dist.items():
-        # Find species by formula match
-        sp = None
-        for s in pah_species.values():
-            if s.formula == formula_key or s.name == formula_key:
-                sp = s
-                break
+        # Prefer exact species name match before falling back to stoichiometric formula match
+        # (prevents formula isomers such as C14H10 or C16H10 from shadowing specific targets)
+        sp = pah_species.get(formula_key)
+        if sp is None:
+            for s in pah_species.values():
+                if s.formula == formula_key or s.name == formula_key:
+                    sp = s
+                    break
         if sp is None:
             continue
 

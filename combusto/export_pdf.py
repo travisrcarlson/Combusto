@@ -198,24 +198,24 @@ def export_result_pdf(result: CombustionResult, formulation: Formulation) -> byt
     
     # Formulation Information
     story.append(Paragraph("1. Propellant Formulation Details", section_style))
-    story.append(Paragraph(f"<b>Name:</b> {formulation.name}", body_style))
+    story.append(Paragraph(f"<b>Name:</b> {_xml_escape(formulation.name)}", body_style))
     if formulation.description:
-        story.append(Paragraph(f"<b>Description:</b> {formulation.description}", body_style))
-        
+        story.append(Paragraph(f"<b>Description:</b> {_xml_escape(formulation.description)}", body_style))
+
     story.append(Spacer(1, 8))
-    
+
     # Formulation Components Table
-    form_data = [[Paragraph("Component Name", table_header_style), 
-                  Paragraph("Stoichiometric Formula", table_header_style), 
-                  Paragraph("Mass Fraction (%)", table_header_style), 
+    form_data = [[Paragraph("Component Name", table_header_style),
+                  Paragraph("Stoichiometric Formula", table_header_style),
+                  Paragraph("Mass Fraction (%)", table_header_style),
                   Paragraph("Hf_298 (kJ/mol)", table_header_style)]]
-                  
+
     for c in formulation.components:
         form_data.append([
-            Paragraph(c.name, table_text_style),
-            Paragraph(c.formula, table_text_style),
+            Paragraph(_xml_escape(c.name), table_text_style),
+            Paragraph(_xml_escape(c.formula), table_text_style),
             Paragraph(f"{c.mass_fraction*100.0:.2f}%", table_text_style),
-            Paragraph(f"{c.hf_298:.1f}", table_text_style)
+            Paragraph(f"{c.hf_298:.1f}", table_text_style),
         ])
         
     form_table = Table(form_data, colWidths=[200, 130, 100, 100])
@@ -270,18 +270,19 @@ def export_result_pdf(result: CombustionResult, formulation: Formulation) -> byt
                   Paragraph("Mole Fraction", table_header_style), 
                   Paragraph("Mass Fraction", table_header_style)]]
                   
-    for sp_name, mole_frac in sorted_species[:10]: # Top 10 species
+    _CONDENSED_SPECIES_NAMES = {
+        "C(gr)", "C(s)", "H2O(l)", "Al2O3", "MgO", "B2O3", "Fe2O3", "CuO", "PbO",
+        "CaO", "CaCO3", "BaO", "K2CO3", "K2SO4", "K2S", "Na2CO3", "soot_C", "soot_precursor",
+    }
+    for sp_name, mole_frac in sorted_species[:10]:  # Top 10 species
         mass_frac = result.species_mass_fractions.get(sp_name, 0.0)
-        # Check phase
-        phase_str = "Gas"
-        if sp_name in ("C(s)", "Al2O3(s)", "CuO(s)", "PbO(s)", "Fe2O3(s)"):
-            phase_str = "Solid"
-            
+        phase_str = "Condensed" if sp_name in _CONDENSED_SPECIES_NAMES else "Gas"
+
         spec_data.append([
-            Paragraph(sp_name, table_text_style),
+            Paragraph(_xml_escape(sp_name), table_text_style),
             Paragraph(phase_str, table_text_style),
             Paragraph(f"{mole_frac:.5f}", table_text_style),
-            Paragraph(f"{mass_frac:.5f}", table_text_style)
+            Paragraph(f"{mass_frac:.5f}", table_text_style),
         ])
         
     spec_table = Table(spec_data, colWidths=[130, 100, 150, 150])
@@ -328,29 +329,30 @@ def export_result_pdf(result: CombustionResult, formulation: Formulation) -> byt
         pc.width = 80
         pc.height = 80
         
-        # Load data to pie chart
+        # Load data to pie chart (guard empty pie data for carbon-free formulations)
         pie_labels = []
         pie_data = []
         for name, frac in result.carbon_distribution.items():
             if frac > 0.01:
-                pie_labels.append(name)
+                pie_labels.append(_xml_escape(name))
                 pie_data.append(frac)
-                
-        pc.data = pie_data
-        pc.labels = pie_labels
-        pc.sideLabels = False
-        d.add(pc)
-        
-        # Wrap side-by-side in double columns table
-        double_cols = [[c_table, d]]
-        cols_table = Table(double_cols, colWidths=[350, 180])
-        cols_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0)
-        ]))
-        story.append(cols_table)
+
+        if pie_data:
+            pc.data = pie_data
+            pc.labels = pie_labels
+            pc.sideLabels = False
+            d.add(pc)
+            double_cols = [[c_table, d]]
+            cols_table = Table(double_cols, colWidths=[350, 180])
+            cols_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            story.append(cols_table)
+        else:
+            story.append(c_table)
 
     # Section 5: Data Provenance & Primary Literature Citations
     story.append(Spacer(1, 14))

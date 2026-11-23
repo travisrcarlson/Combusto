@@ -36,72 +36,91 @@ def optimize_formulation(
     max_pah_frac: Optional[float] = 0.05,
     min_force_j_per_g: Optional[float] = None,
     component_bounds: Optional[Sequence[Tuple[float, float]]] = None,
+    locked_indices: Optional[Sequence[int]] = None,
     equilibrium_temp_k: float = 2500.0,
     self_consistent_adiabatic: bool = True,
 ) -> Dict[str, Any]:
     """Optimize component mass fractions of *base_formulation*.
 
-    Parameters
-    ----------
-    base_formulation : Formulation
-        Starting formulation (must have at least 2 components).
-    conditions : CombustionConditions
-        Operating conditions.
-    pah_config : PAHAllocationConfig
-        PAH/soot model configuration.
-    species_db : dict[str, Species]
-        Thermodynamic species database.
-    objective_metric : str
-        One of:
-        - ``"force_constant"`` : Maximize Force Constant F (J/g)
-        - ``"specific_impulse"`` : Maximize Specific Impulse Isp (s)
-        - ``"min_flame_temp"`` : Minimize Adiabatic Flame Temperature T_ad (K)
-        - ``"min_soot"`` : Minimize PAH/Soot Carbon Fraction
-    max_temp_k : float, optional
-        Soft/hard upper constraint on adiabatic flame temperature (K).
-    max_pah_frac : float, optional
-        Upper constraint on fraction of carbon allocated to PAHs/soot (0..1).
-    min_force_j_per_g : float, optional
-        Lower constraint on propellant force constant (J/g).
-    component_bounds : sequence of (min_frac, max_frac), optional
-        Bounds for each component's mass fraction.
-
-    Returns
-    -------
-    dict
-        Contains ``optimized_formulation``, ``optimized_result``,
-        ``baseline_result``, ``converged``, ``message``, and ``comparison_df``.
+    Supports locked minor additives (`locked_indices`) and custom per-component
+    bounds (`component_bounds`) while preserving exact mass-fraction sum = 1.0
+    and warm-starting adiabatic flame temperature solves for smooth convergence.
     """
     n_comp = len(base_formulation.components)
     if n_comp < 2:
         raise ValueError("Formulation must contain at least 2 components to optimize.")
 
-    x0 = np.array([c.mass_fraction for c in base_formulation.components], dtype=float)
-    s0 = x0.sum()
-    if s0 > 0:
+    locked_set = {int(idx) for idx in (locked_indices or []) if 0 <= int(idx) < n_comp}
+    free_indices = [i for i in range(n_comp) if i not in locked_set]
+    if len(free_indices) < 1:
+        raise ValueError("At least 1 free (unlocked) component is required for optimization.")
+
+    x0 = np.array([max(0.0, float(c.mass_fraction)) for c in base_formulation.components], dtype=float)
+    s0 = float(x0.sum())
+    if s0 > 0.0:
         x0 = x0 / s0
     else:
-        x0 = np.ones(n_comp) / n_comp
+        x0 = np.ones(n_comp, dtype=float) / n_comp
 
     if component_bounds is None:
-        bounds = [(0.01, 0.98) for _ in range(n_comp)]
+        all_bounds = [
+            (float(x0[i]), float(x0[i])) if i in locked_set else (min(0.005, float(x0[i])), max(0.98, float(x0[i])))
+            for i in range(n_comp)
+        ]
     else:
-        bounds = list(component_bounds)
+        if len(component_bounds) != n_comp:
+            raise ValueError("component_bounds length must match number of formulation components.")
+        all_bounds = []
+        for i in range(n_comp):
+            if i in locked_set:
+                all_bounds.append((float(x0[i]), float(x0[i])))
+            else:
+                lo_b, hi_b = float(component_bounds[i][0]), float(component_bounds[i][1])
+                lo_b = max(0.0, min(1.0, lo_b))
+                hi_b = max(lo_b, min(1.0, hi_b))
+                all_bounds.append((lo_b, hi_b))
 
-    def _solve_point(f: Formulation) -> CombustionResult:
+    locked_sum = sum(float(x0[i]) for i in locked_set)
+    free_target_sum = max(0.0, 1.0 - locked_sum)
+    if len(free_indices) == 1:
+        x0[free_indices[0]] = free_target_sum
+
+    t_warm = [float(equilibrium_temp_k)]
+
+    def _solve_point(f: Formulation, tol: float = 0.35) -> CombustionResult:
         if self_consistent_adiabatic:
-            return solve_equilibrium_adiabatic(
-                f, conditions, pah_config, species_db=species_db, t_guess=equilibrium_temp_k, tol=2.0, max_iter=20
+            res = solve_equilibrium_adiabatic(
+                f,
+                conditions,
+                pah_config,
+                species_db=species_db,
+                t_guess=t_warm[0],
+                tol=tol,
+                max_iter=20,
             )
+            t_cur = res.isochoric_flame_temp_k if conditions.mode == "isochoric" else res.adiabatic_flame_temp_k
+            if 500.0 <= t_cur <= 5500.0:
+                t_warm[0] = t_cur
+            return res
         return solve_equilibrium(f, conditions, pah_config, species_db, equilibrium_temp_k)
 
     # Evaluate baseline first
-    baseline_result = _solve_point(base_formulation)
+    baseline_result = _solve_point(base_formulation, tol=0.5)
 
-    def _build_form(weights: np.ndarray) -> Formulation:
-        w = np.maximum(weights, 0.0)
-        tot = w.sum()
-        if tot > 0:
+    def _expand_weights(w_free: np.ndarray) -> np.ndarray:
+        w = x0.copy()
+        w_f = np.maximum(np.asarray(w_free, dtype=float), 0.0)
+        tot_f = float(np.sum(w_f))
+        if tot_f > 0.0:
+            w_f = w_f * (free_target_sum / tot_f)
+        for k, idx in enumerate(free_indices):
+            w[idx] = float(w_f[k])
+        return w
+
+    def _build_form(weights_full: np.ndarray) -> Formulation:
+        w = np.maximum(np.asarray(weights_full, dtype=float), 0.0)
+        tot = float(w.sum())
+        if tot > 0.0:
             w = w / tot
         comps = [
             PropellantComponent(
@@ -118,12 +137,8 @@ def optimize_formulation(
             description=f"Optimized for {objective_metric}",
         )
 
-    def _eval(weights: np.ndarray) -> CombustionResult:
-        f = _build_form(weights)
-        return _solve_point(f)
-
-    def _objective(weights: np.ndarray) -> float:
-        res = _eval(weights)
+    def _objective(w_free: np.ndarray) -> float:
+        res = _solve_point(_build_form(_expand_weights(w_free)))
         pah_frac = res.carbon_distribution.get("PAHs", 0.0)
 
         if objective_metric == "force_constant":
@@ -151,29 +166,44 @@ def optimize_formulation(
 
         return float(val + penalty)
 
-    constraints = {"type": "eq", "fun": lambda w: float(np.sum(w) - 1.0)}
-
-    opt_res = minimize(
-        _objective,
-        x0,
-        method="SLSQP",
-        bounds=bounds,
-        constraints=constraints,
-        options={"maxiter": 60, "ftol": 1e-4, "eps": 1e-2},
-    )
-
-    best_w = np.maximum(opt_res.x, 0.0)
-    if best_w.sum() > 0:
-        best_w = best_w / best_w.sum()
+    if len(free_indices) == 1:
+        best_w = _expand_weights(np.array([free_target_sum]))
+        opt_success = True
+        opt_msg = "Single free component determined by mass balance."
+    else:
+        w0_free = np.array([
+            min(max(float(x0[i]), all_bounds[i][0]), all_bounds[i][1])
+            for i in free_indices
+        ], dtype=float)
+        if np.sum(w0_free) > 0.0:
+            w0_free = w0_free * (free_target_sum / np.sum(w0_free))
+        free_bounds = [all_bounds[i] for i in free_indices]
+        constraints = {
+            "type": "eq",
+            "fun": lambda wf: float(np.sum(wf) - free_target_sum),
+            "jac": lambda wf: np.ones_like(wf, dtype=float),
+        }
+        opt_res = minimize(
+            _objective,
+            w0_free,
+            method="SLSQP",
+            bounds=free_bounds,
+            constraints=constraints,
+            options={"maxiter": 60, "ftol": 1e-4, "eps": 1e-2},
+        )
+        best_w = _expand_weights(opt_res.x)
+        opt_success = bool(opt_res.success)
+        opt_msg = str(opt_res.message)
 
     opt_formulation = _build_form(best_w)
-    opt_result = _solve_point(opt_formulation)
+    opt_result = _solve_point(opt_formulation, tol=0.25)
 
     comp_rows = []
     for i, c in enumerate(base_formulation.components):
         comp_rows.append({
             "Component": c.name,
             "Formula": c.formula,
+            "Locked": i in locked_set,
             "Baseline Mass %": round(c.mass_fraction * 100.0, 2),
             "Optimized Mass %": round(float(best_w[i]) * 100.0, 2),
             "Delta %": round((float(best_w[i]) - c.mass_fraction) * 100.0, 2),
@@ -183,8 +213,8 @@ def optimize_formulation(
         "optimized_formulation": opt_formulation,
         "optimized_result": opt_result,
         "baseline_result": baseline_result,
-        "converged": bool(opt_res.success),
-        "message": str(opt_res.message),
+        "converged": opt_success,
+        "message": opt_msg,
         "comparison_df": pd.DataFrame(comp_rows),
     }
 

@@ -21,7 +21,7 @@ from .models import (
     PropellantComponent,
     Species,
 )
-from .equilibrium import solve_equilibrium
+from .equilibrium import solve_equilibrium, solve_equilibrium_adiabatic
 from .chemistry import equivalence_ratio
 from .pah_allocation import PRESETS
 
@@ -76,16 +76,16 @@ def _modify_oxygen(formulation: Formulation, o_scale: float) -> Formulation:
         if "O" in atoms:
             atoms["O"] *= o_scale
 
-        # Reconstruct a formula string from the atom dict
+        # Reconstruct a formula string from the atom dict (fixed-point, never scientific notation)
         formula_parts: List[str] = []
         for elem in sorted(atoms.keys()):
             count = atoms[elem]
-            if count == 0.0:
+            if count < 1e-8:
                 continue
-            if count == int(count) and count > 0:
-                subscript = str(int(count)) if count != 1 else ""
+            if abs(count - round(count)) < 1e-6 and count >= 1.0:
+                subscript = str(int(round(count))) if int(round(count)) != 1 else ""
             else:
-                subscript = f"{count:.4g}"
+                subscript = f"{count:.6f}".rstrip("0").rstrip(".")
             formula_parts.append(f"{elem}{subscript}")
         new_formula = "".join(formula_parts)
 
@@ -302,6 +302,8 @@ def compare_formulations(
     """
     rows: List[Dict[str, object]] = []
     for form in formulations:
+        if not form.components:
+            continue
         result = solve_equilibrium(
             form, conditions, pah_config, species_db, temperature_k
         )
@@ -323,6 +325,8 @@ def sweep_2d(
     range1: np.ndarray,
     param2: str,  # "equivalence_ratio", "temperature", "pressure"
     range2: np.ndarray,
+    equilibrium_temp_k: Optional[float] = None,
+    self_consistent_adiabatic: bool = False,
 ) -> pd.DataFrame:
     """Perform a 2D parameter sweep varying two conditions simultaneously.
 
@@ -332,19 +336,24 @@ def sweep_2d(
 
     # Get base equivalence ratio to scale if needed
     phi_base = equivalence_ratio(formulation)
+    if equilibrium_temp_k is not None:
+        default_eq_t = float(equilibrium_temp_k)
+    elif conditions.temperature_k is not None and conditions.temperature_k >= 600.0:
+        default_eq_t = float(conditions.temperature_k)
+    else:
+        default_eq_t = 2500.0
+    t_is_swept = param1 == "temperature" or param2 == "temperature"
 
     for val1 in range1:
         for val2 in range2:
             # Set up parameters
-            temp_k = float(conditions.temperature_k if conditions.temperature_k else 2500.0)
+            temp_k = default_eq_t
             press_atm = float(conditions.pressure_atm)
-            phi_val = phi_base
             o_scale = 1.0
 
             # Override parameters based on selection
             if param1 == "equivalence_ratio":
                 o_scale = phi_base / float(val1) if val1 > 0 else 1.0
-                phi_val = float(val1)
             elif param1 == "temperature":
                 temp_k = float(val1)
             elif param1 == "pressure":
@@ -352,7 +361,6 @@ def sweep_2d(
 
             if param2 == "equivalence_ratio":
                 o_scale = phi_base / float(val2) if val2 > 0 else 1.0
-                phi_val = float(val2)
             elif param2 == "temperature":
                 temp_k = float(val2)
             elif param2 == "pressure":
@@ -368,9 +376,14 @@ def sweep_2d(
             sweep_conds.pressure_atm = press_atm
 
             # Run solver
-            result = solve_equilibrium(
-                sweep_form, sweep_conds, pah_config, species_db, temp_k
-            )
+            if self_consistent_adiabatic and not t_is_swept:
+                result = solve_equilibrium_adiabatic(
+                    sweep_form, sweep_conds, pah_config, species_db=species_db, t_guess=temp_k, tol=1.5, max_iter=20
+                )
+            else:
+                result = solve_equilibrium(
+                    sweep_form, sweep_conds, pah_config, species_db, temp_k
+                )
 
             # Log data
             row = _result_to_row(result)

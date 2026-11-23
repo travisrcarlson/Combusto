@@ -29,12 +29,12 @@ STANDARD_EXPLOSIVES = [
     Formulation(
         name="RDX",
         description="Cyclotrimethylenetrinitramine",
-        components=[PropellantComponent(name="RDX", formula="C3H6N6O6", mass_fraction=1.0, hf_298=92.6)]
+        components=[PropellantComponent(name="RDX", formula="C3H6N6O6", mass_fraction=1.0, hf_298=70.3)]
     ),
     Formulation(
         name="HMX",
         description="Cyclotetramethylenetetranitramine",
-        components=[PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=1.0, hf_298=74.4)]
+        components=[PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=1.0, hf_298=74.9)]
     ),
     Formulation(
         name="PETN",
@@ -50,7 +50,7 @@ STANDARD_EXPLOSIVES = [
         name="Composition B",
         description="Standard 60/40 RDX/TNT mixture",
         components=[
-            PropellantComponent(name="RDX", formula="C3H6N6O6", mass_fraction=0.60, hf_298=92.6),
+            PropellantComponent(name="RDX", formula="C3H6N6O6", mass_fraction=0.60, hf_298=70.3),
             PropellantComponent(name="TNT", formula="C7H5N3O6", mass_fraction=0.40, hf_298=-66.9)
         ]
     ),
@@ -58,7 +58,7 @@ STANDARD_EXPLOSIVES = [
         name="Composition C4",
         description="Plastic explosive (estimated binder via PIB)",
         components=[
-            PropellantComponent(name="RDX", formula="C3H6N6O6", mass_fraction=0.91, hf_298=92.6),
+            PropellantComponent(name="RDX", formula="C3H6N6O6", mass_fraction=0.91, hf_298=70.3),
             PropellantComponent(name="PIB (Binder)", formula="C4H8", mass_fraction=0.09, hf_298=-17.0)
         ]
     ),
@@ -75,7 +75,7 @@ STANDARD_EXPLOSIVES = [
         name="Octol 70/30",
         description="HMX/TNT melt-cast",
         components=[
-            PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=0.70, hf_298=74.4),
+            PropellantComponent(name="HMX", formula="C4H8N8O8", mass_fraction=0.70, hf_298=74.9),
             PropellantComponent(name="TNT", formula="C7H5N3O6", mass_fraction=0.30, hf_298=-66.9)
         ]
     ),
@@ -93,7 +93,7 @@ def get_all_library_templates() -> List[Formulation]:
 def load_presets(path: Path | None = None) -> List[Formulation]:
     """Load preset formulations from JSON."""
     path = path or _DEFAULT_PATH
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     formulations = []
@@ -121,7 +121,7 @@ def load_ingredients(path: Path | None = None) -> List[Dict]:
     path = path or _INGREDIENT_PATH
     if not path.exists():
         return []
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("ingredients", [])
 
@@ -170,12 +170,12 @@ def save_formulations(formulations: List[Formulation], path: Path | str) -> None
     data = {
         "formulations": [formulation_to_dict(f) for f in formulations],
     }
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
 def load_formulations(path: Path | str) -> List[Formulation]:
     """Load formulations from a JSON file."""
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return [formulation_from_dict(entry) for entry in data["formulations"]]

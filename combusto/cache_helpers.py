@@ -105,10 +105,11 @@ def _pah_key(pah: PAHAllocationConfig) -> Tuple:
 def _species_fingerprint(species_db: Optional[Dict[str, Species]]) -> Tuple:
     if not species_db:
         return (0, 0.0)
-    return (
-        len(species_db),
-        round(sum(float(s.hf_298) + float(s.molar_covolume_cm3_mol) for s in species_db.values()), 3),
+    poly_sig = sum(
+        float(s.hf_298) + float(s.molar_covolume_cm3_mol) + float(sum(s.thermo_low[:6]) + sum(s.thermo_high[:6]))
+        for s in species_db.values()
     )
+    return (len(species_db), round(poly_sig, 3))
 
 
 def _rebuild_formulation(fkey: Tuple) -> Formulation:
@@ -191,6 +192,10 @@ def _nozzle_cached_impl(
     ambient_p_atm: float,
     pkey: Tuple,
     n_pts: int,
+    real_gas_fugacity: bool,
+    grain_temp_k: float,
+    inert_gas: Optional[str],
+    inert_moles: float,
     sp_fp: Tuple,
     _species_db: Optional[Dict[str, Species]],
 ) -> Dict[str, Any]:
@@ -203,6 +208,10 @@ def _nozzle_cached_impl(
         pah_config=_rebuild_pah(pkey),
         species_db=db,
         n_profile_points=n_pts,
+        real_gas_fugacity=real_gas_fugacity,
+        grain_temp_k=grain_temp_k,
+        inert_gas=inert_gas,
+        inert_moles=inert_moles,
     )
 
 
@@ -260,6 +269,10 @@ def cached_analyze_nozzle_expansion(
     pah_config: Optional[PAHAllocationConfig] = None,
     species_db: Optional[Dict[str, Species]] = None,
     n_profile_points: int = 12,
+    real_gas_fugacity: bool = False,
+    grain_temp_k: float = 298.15,
+    inert_gas: Optional[str] = None,
+    inert_moles: float = 0.0,
 ) -> Dict[str, Any]:
     """Memoized wrapper for `analyze_nozzle_expansion`."""
     from .pah_allocation import PRESETS
@@ -271,6 +284,10 @@ def cached_analyze_nozzle_expansion(
         round(float(ambient_p_atm), 5),
         _pah_key(p_cfg),
         int(n_profile_points),
+        bool(real_gas_fugacity),
+        round(float(grain_temp_k), 3),
+        inert_gas,
+        round(float(inert_moles), 6),
         _species_fingerprint(species_db),
         species_db,
     )

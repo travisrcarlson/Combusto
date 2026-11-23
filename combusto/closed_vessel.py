@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
 
-from .ballistics import grain_form_function
+from .ballistics import grain_form_function, grain_u_max
 
 
 def simulate_closed_vessel(
@@ -43,7 +43,7 @@ def simulate_closed_vessel(
     D0 = max(1e-4, web_thickness_mm * 1e-3)     # m
     P_ign = ignition_pressure_mpa * 1e6         # Pa
 
-    u_max = 1.18 if grain_geometry == "7_perf" else (1.15 if grain_geometry == "19_perf" else 1.0)
+    u_max = grain_u_max(grain_geometry)
 
     def pressure_from_z(z: float) -> float:
         """Noble-Abel closed-vessel pressure (Pa) at burned fraction z."""
@@ -73,21 +73,28 @@ def simulate_closed_vessel(
     burnout_event.terminal = True
     burnout_event.direction = -1
 
-    t_eval = np.linspace(0.0, t_end, 400)
     sol = solve_ivp(
         odes,
         [0.0, t_end],
         [0.0, 0.001],
-        t_eval=t_eval,
+        dense_output=True,
         events=burnout_event,
         method="RK45",
+        max_step=5e-5,
         rtol=1e-6,
         atol=1e-8,
     )
 
-    t_arr = sol.t
-    xb_arr = sol.y[0]
-    z_arr = np.clip(sol.y[1], 0.0, 1.0)
+    t_final = float(sol.t[-1]) if len(sol.t) > 0 else t_end
+    if sol.sol is not None and t_final > 0.0:
+        t_arr = np.linspace(0.0, t_final, 400)
+        y_interp = sol.sol(t_arr)
+        xb_arr = np.maximum(0.0, y_interp[0])
+        z_arr = np.clip(y_interp[1], 0.0, 1.0)
+    else:
+        t_arr = sol.t
+        xb_arr = np.maximum(0.0, sol.y[0])
+        z_arr = np.clip(sol.y[1], 0.0, 1.0)
 
     p_mpa_arr = np.array([pressure_from_z(float(z)) / 1e6 for z in z_arr])
     p_max_mpa = float(np.max(p_mpa_arr))
@@ -139,11 +146,16 @@ def calibrate_abel_eos_and_burn_rate(
     and log-log burn rate regression:
         ln(r) = ln(a) + n * ln(P)
     """
-    deltas = np.asarray(loading_densities_g_cm3, dtype=float)
-    p_maxs = np.asarray(peak_pressures_mpa, dtype=float)
+    deltas_raw = np.asarray(loading_densities_g_cm3, dtype=float)
+    p_maxs_raw = np.asarray(peak_pressures_mpa, dtype=float)
+    abel_mask = np.isfinite(deltas_raw) & np.isfinite(p_maxs_raw) & (deltas_raw > 1e-6) & (p_maxs_raw > 0.0)
+    deltas = deltas_raw[abel_mask]
+    p_maxs = p_maxs_raw[abel_mask]
+    if len(deltas) < 2:
+        raise ValueError("At least 2 valid numeric loading-density / peak-pressure rows are required for Abel EOS calibration.")
 
     # Convert P_max (MPa) / Delta (g/cm3) -> J/g (since 1 MPa * cm3/g = 1 J/g)
-    y_abel = p_maxs / np.maximum(deltas, 1e-6)
+    y_abel = p_maxs / deltas
     # Linear fit y = eta * P_max + F
     slope_eta, intercept_F = np.polyfit(p_maxs, y_abel, 1)
 
@@ -154,8 +166,13 @@ def calibrate_abel_eos_and_burn_rate(
     r2_abel = 1.0 - (ss_res / max(ss_tot, 1e-12))
 
     # Log-log regression for r = a * P^n
-    p_b = np.maximum(np.asarray(burn_pressures_mpa, dtype=float), 1e-3)
-    r_b = np.maximum(np.asarray(burn_rates_mm_s, dtype=float), 1e-4)
+    p_b_raw = np.asarray(burn_pressures_mpa, dtype=float)
+    r_b_raw = np.asarray(burn_rates_mm_s, dtype=float)
+    burn_mask = np.isfinite(p_b_raw) & np.isfinite(r_b_raw) & (p_b_raw > 1e-3) & (r_b_raw > 1e-4)
+    p_b = p_b_raw[burn_mask]
+    r_b = r_b_raw[burn_mask]
+    if len(p_b) < 2:
+        raise ValueError("At least 2 valid numeric burn-pressure / burn-rate rows are required for Saint-Robert regression.")
     ln_p = np.log(p_b)
     ln_r = np.log(r_b)
     n_fit, ln_a_fit = np.polyfit(ln_p, ln_r, 1)

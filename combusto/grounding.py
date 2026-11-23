@@ -292,13 +292,13 @@ EPA_AP42_CALIBRATED_PAH = PAHAllocationConfig(
     phi_exponent=1.35,
     max_fraction=0.015,
     pah_distribution={
-        "C6H6": 0.62,
-        "C7H8": 0.14,
-        "C10H8": 0.11,
-        "C14H10": 0.06,
-        "C16H10": 0.04,
-        "C20H12": 0.015,
-        "C24H12": 0.015,
+        "benzene": 0.62,
+        "toluene": 0.14,
+        "naphthalene": 0.11,
+        "phenanthrene": 0.06,
+        "pyrene": 0.04,
+        "benzo_a_pyrene": 0.015,
+        "coronene": 0.015,
     },
 )
 

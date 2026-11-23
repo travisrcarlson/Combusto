@@ -321,35 +321,6 @@
       "molar_covolume_cm3_mol": 38.4
     },
     {
-      "name": "Ar",
-      "formula": "Ar",
-      "phase": "gas",
-      "category": "small",
-      "hf_298": 0.0,
-      "t_mid": 1000.0,
-      "thermo_low": [
-        2.5,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        -745.375,
-        4.366
-      ],
-      "thermo_high": [
-        2.5,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        -745.375,
-        4.366
-      ],
-      "cas": "7440-37-1",
-      "source": "NASA Glenn TP-2002-211556",
-      "molar_covolume_cm3_mol": 26.2
-    },
-    {
       "name": "OH",
       "formula": "OH",
       "phase": "gas",
@@ -615,7 +586,7 @@
       "formula": "Cl2",
       "phase": "gas",
       "category": "small",
-      "hf_298": -0.9,
+      "hf_298": 0.0,
       "t_mid": 1000.0,
       "thermo_low": [
         3.0985084,
@@ -623,7 +594,7 @@
         -3.2369217e-06,
         -3.5228176e-10,
         6.858814e-13,
-        -1165.05,
+        -1057.2213,
         8.3202405
       ],
       "thermo_high": [
@@ -632,7 +603,7 @@
         -2.5733996e-07,
         4.5106883e-11,
         -2.8475846e-15,
-        -1558.1364,
+        -1450.3077,
         3.3667154
       ],
       "cas": "7782-50-5",
@@ -1840,6 +1811,81 @@
         -745.375,
         0.9287006
       ]
+    },
+    {
+      "name": "K2S",
+      "formula": "K2S",
+      "phase": "condensed",
+      "category": "small",
+      "hf_298": -376.6,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "1312-73-8",
+      "source": "NIST-JANAF 4th Ed. (Potassium Sulfide)",
+      "molar_covolume_cm3_mol": 0.0,
+      "thermo_low": [8.141321, 0.002827519, 0.0, 0.0, 0.0, -47847.581, -34.60039],
+      "thermo_high": [10.583968, 0.000384872, 0.0, 0.0, 0.0, -49068.9046, -49.030951]
+    },
+    {
+      "name": "K",
+      "formula": "K",
+      "phase": "gas",
+      "category": "small",
+      "hf_298": 89.0,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "7440-09-7",
+      "source": "NIST-JANAF 4th Ed. / NASA Glenn",
+      "molar_covolume_cm3_mol": 32.0,
+      "thermo_low": [2.500462, 0.0, 0.0, 0.0, 0.0, 9958.7275, 5.037844],
+      "thermo_high": [2.45957, 4.0893e-05, 0.0, 0.0, 0.0, 9979.1738, 5.279428]
+    },
+    {
+      "name": "S2",
+      "formula": "S2",
+      "phase": "gas",
+      "category": "small",
+      "hf_298": 128.6,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "23550-45-0",
+      "source": "NIST-JANAF 4th Ed. / NASA Glenn",
+      "molar_covolume_cm3_mol": 38.0,
+      "thermo_low": [3.689154, 0.000736869, 0.0, 0.0, 0.0, 14334.3532, 6.203533],
+      "thermo_high": [4.249624, 0.000176399, 0.0, 0.0, 0.0, 14054.1187, 2.89242]
+    },
+    {
+      "name": "AlCl",
+      "formula": "AlCl",
+      "phase": "gas",
+      "category": "small",
+      "hf_298": -51.46,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "13595-81-8",
+      "source": "NIST-JANAF 4th Ed. / NASA Glenn",
+      "molar_covolume_cm3_mol": 38.0,
+      "thermo_low": [4.09202, 0.000394139, 0.0, 0.0, 0.0, -7426.7699, 3.983892],
+      "thermo_high": [4.397959, 8.82e-05, 0.0, 0.0, 0.0, -7579.7395, 2.176478]
+    },
+    {
+      "name": "AlCl3",
+      "formula": "AlCl3",
+      "phase": "gas",
+      "category": "small",
+      "hf_298": -584.59,
+      "t_mid": 1000.0,
+      "t_low": 200.0,
+      "t_high": 6000.0,
+      "cas": "7446-70-0",
+      "source": "NIST-JANAF 4th Ed. / NASA Glenn",
+      "molar_covolume_cm3_mol": 54.0,
+      "thermo_low": [8.035332, 0.001730784, 0.0, 0.0, 0.0, -72782.6831, -8.484482],
+      "thermo_high": [9.629807, 0.000136309, 0.0, 0.0, 0.0, -73579.9208, -17.904253]
     }
   ]
 }

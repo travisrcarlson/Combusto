@@ -16,6 +16,21 @@ from scipy.integrate import solve_ivp
 from .models import CombustionResult
 
 
+def grain_u_max(grain_geometry: str) -> float:
+    """Return normalized maximum burn depth u_max = 2*x_b/D0 including sliver burnout."""
+    if grain_geometry == "7_perf":
+        chi, lam, mu = 0.72, 0.24, -0.056
+        z1 = chi * (1.0 + lam + mu)
+        d1 = chi * (1.0 + 2.0 * lam + 3.0 * mu)
+        return 1.0 + 2.0 * (1.0 - z1) / d1
+    if grain_geometry == "19_perf":
+        chi, lam, mu = 0.68, 0.36, -0.058
+        z1 = chi * (1.0 + lam + mu)
+        d1 = chi * (1.0 + 2.0 * lam + 3.0 * mu)
+        return 1.0 + 2.0 * (1.0 - z1) / d1
+    return 1.0
+
+
 def grain_form_function(u: float, grain_geometry: str) -> Tuple[float, float]:
     """Return (z, dz_du) for normalized web burn fraction *u* = 2 * x_b / D0.
 
@@ -23,8 +38,8 @@ def grain_form_function(u: float, grain_geometry: str) -> Tuple[float, float]:
     - ``"spherical"``   : Regressive ball powder (0 <= u <= 1)
     - ``"cord"``        : Regressive cylindrical strand (0 <= u <= 1)
     - ``"single_perf"`` : Neutral single-perforated tube (0 <= u <= 1)
-    - ``"7_perf"``      : Progressive 7-perforated cylinder with sliver phase (0 <= u <= 1.18)
-    - ``"19_perf"``     : Highly progressive 19-perforated rosette with sliver phase (0 <= u <= 1.15)
+    - ``"7_perf"``      : Progressive 7-perforated cylinder with C1 sliver phase
+    - ``"19_perf"``     : Highly progressive 19-perforated rosette with C1 sliver phase
     """
     if grain_geometry == "spherical":
         u_c = max(0.0, min(1.0, u))
@@ -42,36 +57,17 @@ def grain_form_function(u: float, grain_geometry: str) -> Tuple[float, float]:
         dz_du = 2.0 - 2.0 * u_c
         return z, dz_du
 
-    elif grain_geometry == "7_perf":
-        # Phase I (0 <= u <= 1.0): progressive burning up to web breakup (z1 = 0.852)
-        # Phase II (1.0 < u <= 1.18): degressive burning of 12 triangular slivers
-        u_max = 1.18
-        z1 = 0.852
-        chi = 0.72
-        lam = 0.24
-        mu = -0.056
-        if u <= 0.0:
-            return 0.0, chi
-        elif u <= 1.0:
-            z = chi * u * (1.0 + lam * u + mu * (u ** 2))
-            dz_du = chi * (1.0 + 2.0 * lam * u + 3.0 * mu * (u ** 2))
-            return min(z, z1), dz_du
-        elif u < u_max:
-            s = (u - 1.0) / (u_max - 1.0)
-            z = z1 + (1.0 - z1) * (1.0 - (1.0 - s) ** 2)
-            dz_du = (1.0 - z1) * 2.0 * (1.0 - s) / (u_max - 1.0)
-            return min(z, 1.0), dz_du
+    elif grain_geometry in ("7_perf", "19_perf"):
+        # Phase I (0 <= u <= 1.0): progressive burning up to web breakup z1
+        # Phase II (1.0 < u < u_max): C1-continuous quadratic sliver burnout
+        if grain_geometry == "7_perf":
+            chi, lam, mu = 0.72, 0.24, -0.056
         else:
-            return 1.0, 0.0
+            chi, lam, mu = 0.68, 0.36, -0.058
+        z1 = chi * (1.0 + lam + mu)
+        d1 = chi * (1.0 + 2.0 * lam + 3.0 * mu)
+        u_max = 1.0 + 2.0 * (1.0 - z1) / d1
 
-    elif grain_geometry == "19_perf":
-        # Phase I (0 <= u <= 1.0): strongly progressive burning up to web breakup (z1 = 0.885)
-        # Phase II (1.0 < u <= 1.15): degressive sliver burnout
-        u_max = 1.15
-        z1 = 0.885
-        chi = 0.68
-        lam = 0.36
-        mu = -0.058
         if u <= 0.0:
             return 0.0, chi
         elif u <= 1.0:
@@ -130,7 +126,7 @@ def simulate_ballistics(
     P_start = start_pressure_mpa * 1e6           # MPa -> Pa
     P_res = resistive_pressure_mpa * 1e6         # MPa -> Pa
 
-    u_max = 1.18 if grain_geometry == "7_perf" else (1.15 if grain_geometry == "19_perf" else 1.0)
+    u_max = grain_u_max(grain_geometry)
 
     # State vector: [x, v, x_b, z]
     y0 = [0.0, 0.0, 0.0, 0.001]
@@ -218,7 +214,7 @@ def simulate_ballistics(
         ke_proj = 0.5 * (m_proj + M_p / 3.0) * (v_t ** 2)
         effective_energy = max(0.1 * m_gas * F, m_gas * F - (gamma - 1.0) * ke_proj)
         denom = V_gas - m_gas * eta
-        P = effective_energy / denom if denom > 1e-9 else 1e3
+        P = effective_energy / denom if denom > 1e-9 else 1e9
         p_arr.append(P / 1e6)
 
     return {
@@ -322,40 +318,68 @@ def estimate_barrel_erosion(
     p_mpa = np.asarray(ib_out["pressure_mpa"], dtype=float)
     v_ms = np.asarray(ib_out["velocity_m_s"], dtype=float)
 
-    t_gas_peak = 2850.0
+    t_gas_peak = 2950.0
     x_co = 0.25
     x_co2 = 0.12
     x_h2 = 0.12
     x_h2o = 0.18
-    if result is not None and result.adiabatic_flame_temp_k > 300.0:
-        t_gas_peak = float(result.adiabatic_flame_temp_k)
-        x_co = result.species_mole_fractions.get("CO", 0.20)
-        x_co2 = result.species_mole_fractions.get("CO2", 0.10)
-        x_h2 = result.species_mole_fractions.get("H2", 0.10)
-        x_h2o = result.species_mole_fractions.get("H2O", 0.15)
+    if result is not None:
+        t_src = (
+            float(result.isochoric_flame_temp_k)
+            if getattr(result, "isochoric_flame_temp_k", 0.0) > 300.0
+            else float(result.adiabatic_flame_temp_k)
+        )
+        if t_src > 300.0:
+            t_gas_peak = t_src
+            x_co = result.species_mole_fractions.get("CO", 0.20)
+            x_co2 = result.species_mole_fractions.get("CO2", 0.10)
+            x_h2 = result.species_mole_fractions.get("H2", 0.10)
+            x_h2o = result.species_mole_fractions.get("H2O", 0.15)
 
     # Thermal effusivity of CrMoV gun steel: sqrt(k * rho * c) ~ 13,500 J / (m^2 K s^0.5)
     effusivity = 13500.0
+    inv_eff_sqrt_pi = 2.0 / (effusivity * math.sqrt(math.pi))
     d_m = max(0.004, bore_diameter_mm * 1e-3)
 
-    # Compute convective heat flux q_conv(t) and semi-infinite wall surface T_wall(t)
+    # Compute convective heat flux q_conv(t) and 1D semi-infinite Duhamel bore wall temperature T_wall(t)
     p_max = max(float(np.max(p_mpa)), 1.0)
-    t_wall = np.zeros_like(times)
-    q_flux_mw_m2 = np.zeros_like(times)
+    n_pts = len(times)
+    t_wall = np.full(n_pts, float(initial_wall_temp_k), dtype=float)
+    q_flux_w_m2 = np.zeros(n_pts, dtype=float)
+    q_flux_mw_m2 = np.zeros(n_pts, dtype=float)
 
-    for i, t_s in enumerate(times):
-        # Local gas velocity at origin of rifling (~0.35 * projectile velocity)
-        v_local = max(15.0, 0.35 * v_ms[i])
-        # Krause-style Nusselt correlation h_c (W / (m^2 K))
-        h_c = 180.0 * ((p_mpa[i] / 100.0) ** 0.8) * ((v_local / 100.0) ** 0.6) * ((0.03 / d_m) ** 0.2)
-        t_gas_inst = initial_wall_temp_k + (t_gas_peak - initial_wall_temp_k) * ((p_mpa[i] / p_max) ** 0.22)
-        dt_eff = max(1e-5, t_s)
-        # Transient wall temperature rise with thermal boundary layer damping
-        delta_t = (t_gas_inst - initial_wall_temp_k) * (
-            1.0 - math.exp(-1.15 * h_c * math.sqrt(dt_eff) / effusivity)
+    for k in range(1, n_pts):
+        t_k = float(times[k])
+        dt_k = max(t_k - float(times[k - 1]), 1e-7)
+        # Characteristic turbulent gas velocity at origin of rifling (~0.35 * projectile velocity)
+        v_local = max(40.0, 0.35 * float(v_ms[k]))
+        # Gun-bore convective heat transfer coefficient h_c [W / (m^2 K)] (Lawton / Krause)
+        h_c = (
+            6.5e4
+            * ((max(float(p_mpa[k]), 0.1) / 100.0) ** 0.8)
+            * ((v_local / 100.0) ** 0.8)
+            * ((0.03 / d_m) ** 0.2)
         )
-        t_wall[i] = initial_wall_temp_k + delta_t
-        q_flux_mw_m2[i] = max(0.0, h_c * (t_gas_inst - t_wall[i]) / 1e6)
+        t_gas_inst = initial_wall_temp_k + (t_gas_peak - initial_wall_temp_k) * (
+            (max(float(p_mpa[k]), 0.0) / p_max) ** 0.22
+        )
+
+        # Semi-infinite wall Duhamel convolution history over prior intervals j = 0 .. k-2
+        if k > 1:
+            w_hist = inv_eff_sqrt_pi * (
+                np.sqrt(np.maximum(t_k - times[: k - 1], 0.0))
+                - np.sqrt(np.maximum(t_k - times[1:k], 0.0))
+            )
+            t_hist = initial_wall_temp_k + float(np.dot(w_hist, q_flux_w_m2[: k - 1]))
+        else:
+            t_hist = float(initial_wall_temp_k)
+
+        # Implicit Euler solve for current interval j = k-1 with q_k = h_c * (T_gas - T_wall)
+        w_self = inv_eff_sqrt_pi * math.sqrt(dt_k)
+        t_wall[k] = (t_hist + w_self * h_c * t_gas_inst) / (1.0 + w_self * h_c)
+        q_k = h_c * (t_gas_inst - t_wall[k])
+        q_flux_w_m2[k] = q_k
+        q_flux_mw_m2[k] = max(0.0, q_k / 1e6)
 
     peak_wall_temp_k = float(np.max(t_wall))
     peak_heat_flux_mw_m2 = float(np.max(q_flux_mw_m2))
@@ -366,7 +390,6 @@ def estimate_barrel_erosion(
     chem_corrosivity = 0.6 + 0.25 * min(4.0, co_ratio) + 0.20 * min(4.0, h2_ratio)
 
     # Lawton Arrhenius wear per shot (micrometers per shot at origin of rifling)
-    # Activation energy E_a ~ 65 kJ/mol above 850 K steel transformation onset
     if peak_wall_temp_k > 750.0:
         wear_um_per_shot = (
             145.0
